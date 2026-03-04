@@ -979,7 +979,7 @@ local function ReportTotemsToParty()
 end
 
 -- DEBUG SLASH COMMANDS
-SLASH_STCHECKSUPERWOW_1="/stchecksw";
+SLASH_STCHECKSUPERWOW1="/stchecksw";
 SlashCmdList["STCHECKSUPERWOW"]=function()
     if superwowEnabled then
         DEFAULT_CHAT_FRAME:AddMessage("=== SuperWoW Detected === v"..tostring(SUPERWOW_VERSION));
@@ -995,7 +995,7 @@ SlashCmdList["STCHECKSUPERWOW"]=function()
     end
 end
 
-SLASH_STTOTEMPOS_1="/sttotempos";
+SLASH_STTOTEMPOS1="/sttotempos";
 SlashCmdList["STTOTEMPOS"]=function()
     DEFAULT_CHAT_FRAME:AddMessage("=== Totem Positions ===");
     local px,py=UnitPosition("player")
@@ -1012,7 +1012,7 @@ SlashCmdList["STTOTEMPOS"]=function()
     end
 end
 
-SLASH_STCHECKBUFFS_1="/stcheckbuffs";
+SLASH_STCHECKBUFFS1="/stcheckbuffs";
 SlashCmdList["STCHECKBUFFS"]=function()
     DEFAULT_CHAT_FRAME:AddMessage("=== Buffs ===");
     for i=1,32 do
@@ -1049,7 +1049,7 @@ local function PrintUsage()
     DEFAULT_CHAT_FRAME:AddMessage("  WATER: /stms /sths /stfr /stpoison /stdisease");
 end
 
-SLASH_STHEAL_1="/stheal"; SlashCmdList["STHEAL"]=HealPartyMembers;
+SLASH_STHEAL1="/stheal"; SlashCmdList["STHEAL"]=HealPartyMembers;
 
 local function DropFireTotem()
     local currentTime = GetTime();
@@ -1101,19 +1101,19 @@ local function DropFireTotem()
     lastTotemCastTime = currentTime;
 end
 
-SLASH_STBUFF_1="/stbuff";           SlashCmdList["STBUFF"]=DropTotems;
-SLASH_STFIREBUFF_1="/stfirebuff";   SlashCmdList["STFIREBUFF"]=DropFireTotem;
-SLASH_STDEBUG_1="/stdebug";         SlashCmdList["STDEBUG"]=function() ToggleSetting("DEBUG_MODE","Debug mode") end
-SLASH_STF_1="/stf";                 SlashCmdList["STF"]=function() ToggleSetting("FOLLOW_ENABLED","Follow functionality") end
-SLASH_STCHAINHEAL_1="/stchainheal"; SlashCmdList["STCHAINHEAL"]=function() ToggleSetting("CHAIN_HEAL_ENABLED","Chain Heal functionality") end
-SLASH_STANTIDISEASE_1="/stantidisease"; SlashCmdList["STANTIDISEASE"]=ToggleAntiDiseaseMode;
-SLASH_STANTIPOISON_1="/stantipoison";   SlashCmdList["STANTIPOISON"]=ToggleAntiPoisonMode;
-SLASH_STHYBRID_1="/sthybrid";       SlashCmdList["STHYBRID"]=ToggleHybridMode;
-SLASH_STDELAY_1="/stdelay";         SlashCmdList["STDELAY"]=SetTotemCastDelay;
-SLASH_STPETS_1="/stpets";           SlashCmdList["STPETS"]=TogglePetHealing;
-SLASH_STAUTO_1="/stauto";           SlashCmdList["STAUTO"]=ToggleAutoShieldMode;
+SLASH_STBUFF1="/stbuff";           SlashCmdList["STBUFF"]=DropTotems;
+SLASH_STFIREBUFF1="/stfirebuff";   SlashCmdList["STFIREBUFF"]=DropFireTotem;
+SLASH_STDEBUG1="/stdebug";         SlashCmdList["STDEBUG"]=function() ToggleSetting("DEBUG_MODE","Debug mode") end
+SLASH_STF1="/stf";                 SlashCmdList["STF"]=function() ToggleSetting("FOLLOW_ENABLED","Follow functionality") end
+SLASH_STCHAINHEAL1="/stchainheal"; SlashCmdList["STCHAINHEAL"]=function() ToggleSetting("CHAIN_HEAL_ENABLED","Chain Heal functionality") end
+SLASH_STANTIDISEASE1="/stantidisease"; SlashCmdList["STANTIDISEASE"]=ToggleAntiDiseaseMode;
+SLASH_STANTIPOISON1="/stantipoison";   SlashCmdList["STANTIPOISON"]=ToggleAntiPoisonMode;
+SLASH_STHYBRID1="/sthybrid";       SlashCmdList["STHYBRID"]=ToggleHybridMode;
+SLASH_STDELAY1="/stdelay";         SlashCmdList["STDELAY"]=SetTotemCastDelay;
+SLASH_STPETS1="/stpets";           SlashCmdList["STPETS"]=TogglePetHealing;
+SLASH_STAUTO1="/stauto";           SlashCmdList["STAUTO"]=ToggleAutoShieldMode;
 
-SLASH_STL_1="/stl";
+SLASH_STL1="/stl";
 SlashCmdList["STL"]=function()
     if UnitExists("target") and UnitIsPlayer("target") then
         local n=UnitName("target"); settings.FOLLOW_TARGET_NAME=n; SuperTotemDB.FOLLOW_TARGET_NAME=n;
@@ -1123,38 +1123,38 @@ SlashCmdList["STL"]=function()
     end
 end
 
-SLASH_STWATERSHIELD_1="/stwatershield"; SLASH_STWATERSHIELD_2="/stws"; SlashCmdList["STWATERSHIELD"]=SetWaterShield;
-SLASH_STLIGHTNINGSHIELD_1="/stlightningshield"; SLASH_STLIGHTNINGSHIELD_2="/stls"; SlashCmdList["STLIGHTNINGSHIELD"]=SetLightningShield;
-SLASH_STEARTHSHIELD_1="/stearthshield"; SLASH_STEARTHSHIELD_2="/stes"; SlashCmdList["STEARTHSHIELD"]=SetEarthShield;
+SLASH_STWATERSHIELD1="/stwatershield"; SLASH_STWATERSHIELD2="/stws"; SlashCmdList["STWATERSHIELD"]=SetWaterShield;
+SLASH_STLIGHTNINGSHIELD1="/stlightningshield"; SLASH_STLIGHTNINGSHIELD2="/stls"; SlashCmdList["STLIGHTNINGSHIELD"]=SetLightningShield;
+SLASH_STEARTHSHIELD1="/stearthshield"; SLASH_STEARTHSHIELD2="/stes"; SlashCmdList["STEARTHSHIELD"]=SetEarthShield;
 
-SLASH_STSOE_1="/stsoe";       SlashCmdList["STSOE"]=function() SetEarthTotem("Strength of Earth Totem","Strength of Earth") end
-SLASH_STSS_1="/stss";         SlashCmdList["STSS"]=function() SetEarthTotem("Stoneskin Totem","Stoneskin") end
-SLASH_STTREMOR_1="/sttremor"; SlashCmdList["STTREMOR"]=function() SetEarthTotem("Tremor Totem","Tremor") end
-SLASH_STSTONECLAW_1="/ststoneclaw"; SlashCmdList["STSTONECLAW"]=function() SetEarthTotem("Stoneclaw Totem","Stoneclaw") end
-SLASH_STEARTHBIND_1="/stearthbind"; SlashCmdList["STEARTHBIND"]=function() SetEarthTotem("Earthbind Totem","Earthbind") end
+SLASH_STSOE1="/stsoe";       SlashCmdList["STSOE"]=function() SetEarthTotem("Strength of Earth Totem","Strength of Earth") end
+SLASH_STSS1="/stss";         SlashCmdList["STSS"]=function() SetEarthTotem("Stoneskin Totem","Stoneskin") end
+SLASH_STTREMOR1="/sttremor"; SlashCmdList["STTREMOR"]=function() SetEarthTotem("Tremor Totem","Tremor") end
+SLASH_STSTONECLAW1="/ststoneclaw"; SlashCmdList["STSTONECLAW"]=function() SetEarthTotem("Stoneclaw Totem","Stoneclaw") end
+SLASH_STEARTHBIND1="/stearthbind"; SlashCmdList["STEARTHBIND"]=function() SetEarthTotem("Earthbind Totem","Earthbind") end
 
-SLASH_STFT_1="/stft";         SlashCmdList["STFT"]=function() SetFireTotem("Flametongue Totem","Flametongue") end
-SLASH_STFRR_1="/stfrr";       SlashCmdList["STFRR"]=function() SetFireTotem("Frost Resistance Totem","Frost Resistance") end
-SLASH_STFIRENOVA_1="/stfirenova"; SlashCmdList["STFIRENOVA"]=function() SetFireTotem("Fire Nova Totem","Fire Nova") end
-SLASH_STSEARING_1="/stsearing"; SlashCmdList["STSEARING"]=function() SetFireTotem("Searing Totem","Searing") end
-SLASH_STMAGMA_1="/stmagma";   SlashCmdList["STMAGMA"]=function() SetFireTotem("Magma Totem","Magma") end
+SLASH_STFT1="/stft";         SlashCmdList["STFT"]=function() SetFireTotem("Flametongue Totem","Flametongue") end
+SLASH_STFRR1="/stfrr";       SlashCmdList["STFRR"]=function() SetFireTotem("Frost Resistance Totem","Frost Resistance") end
+SLASH_STFIRENOVA1="/stfirenova"; SlashCmdList["STFIRENOVA"]=function() SetFireTotem("Fire Nova Totem","Fire Nova") end
+SLASH_STSEARING1="/stsearing"; SlashCmdList["STSEARING"]=function() SetFireTotem("Searing Totem","Searing") end
+SLASH_STMAGMA1="/stmagma";   SlashCmdList["STMAGMA"]=function() SetFireTotem("Magma Totem","Magma") end
 
-SLASH_STWF_1="/stwf";         SlashCmdList["STWF"]=function() SetAirTotem("Windfury Totem","Windfury") end
-SLASH_STGOA_1="/stgoa";       SlashCmdList["STGOA"]=function() SetAirTotem("Grace of Air Totem","Grace of Air") end
-SLASH_STNR_1="/stnr";         SlashCmdList["STNR"]=function() SetAirTotem("Nature Resistance Totem","Nature Resistance") end
-SLASH_STGROUNDING_1="/stgrounding"; SlashCmdList["STGROUNDING"]=function() SetAirTotem("Grounding Totem","Grounding") end
-SLASH_STSENTRY_1="/stsentry"; SlashCmdList["STSENTRY"]=function() SetAirTotem("Sentry Totem","Sentry") end
-SLASH_STWINDWALL_1="/stwindwall"; SlashCmdList["STWINDWALL"]=function() SetAirTotem("Windwall Totem","Windwall") end
-SLASH_STTRANQUIL_1="/sttranquil"; SlashCmdList["STTRANQUIL"]=function() SetAirTotem("Tranquil Air Totem","Tranquil Air") end
+SLASH_STWF1="/stwf";         SlashCmdList["STWF"]=function() SetAirTotem("Windfury Totem","Windfury") end
+SLASH_STGOA1="/stgoa";       SlashCmdList["STGOA"]=function() SetAirTotem("Grace of Air Totem","Grace of Air") end
+SLASH_STNR1="/stnr";         SlashCmdList["STNR"]=function() SetAirTotem("Nature Resistance Totem","Nature Resistance") end
+SLASH_STGROUNDING1="/stgrounding"; SlashCmdList["STGROUNDING"]=function() SetAirTotem("Grounding Totem","Grounding") end
+SLASH_STSENTRY1="/stsentry"; SlashCmdList["STSENTRY"]=function() SetAirTotem("Sentry Totem","Sentry") end
+SLASH_STWINDWALL1="/stwindwall"; SlashCmdList["STWINDWALL"]=function() SetAirTotem("Windwall Totem","Windwall") end
+SLASH_STTRANQUIL1="/sttranquil"; SlashCmdList["STTRANQUIL"]=function() SetAirTotem("Tranquil Air Totem","Tranquil Air") end
 
-SLASH_STMS_1="/stms";         SlashCmdList["STMS"]=function() SetWaterTotem("Mana Spring Totem","Mana Spring") end
-SLASH_STHS_1="/sths";         SlashCmdList["STHS"]=function() SetWaterTotem("Healing Stream Totem","Healing Stream") end
-SLASH_STFR_1="/stfr";         SlashCmdList["STFR"]=function() SetWaterTotem("Fire Resistance Totem","Fire Resistance") end
-SLASH_STPOISON_1="/stpoison"; SlashCmdList["STPOISON"]=function() SetWaterTotem("Poison Cleansing Totem","Poison Cleansing") end
-SLASH_STDISEASE_1="/stdisease"; SlashCmdList["STDISEASE"]=function() SetWaterTotem("Disease Cleansing Totem","Disease Cleansing") end
+SLASH_STMS1="/stms";         SlashCmdList["STMS"]=function() SetWaterTotem("Mana Spring Totem","Mana Spring") end
+SLASH_STHS1="/sths";         SlashCmdList["STHS"]=function() SetWaterTotem("Healing Stream Totem","Healing Stream") end
+SLASH_STFR1="/stfr";         SlashCmdList["STFR"]=function() SetWaterTotem("Fire Resistance Totem","Fire Resistance") end
+SLASH_STPOISON1="/stpoison"; SlashCmdList["STPOISON"]=function() SetWaterTotem("Poison Cleansing Totem","Poison Cleansing") end
+SLASH_STDISEASE1="/stdisease"; SlashCmdList["STDISEASE"]=function() SetWaterTotem("Disease Cleansing Totem","Disease Cleansing") end
 
-SLASH_ST_1="/st"; SLASH_ST_2="/supertotem"; SlashCmdList["ST"]=PrintUsage;
-SLASH_STREPORT_1="/streport"; SlashCmdList["STREPORT"]=ReportTotemsToParty;
+SLASH_ST1="/st"; SLASH_ST2="/supertotem"; SlashCmdList["ST"]=PrintUsage;
+SLASH_STREPORT1="/streport"; SlashCmdList["STREPORT"]=ReportTotemsToParty;
 
 OnExternalTotemCast = function(spellName)
     local def = TOTEM_DEFINITIONS[spellName];
@@ -1339,8 +1339,10 @@ do
     bar:SetWidth(barW); bar:SetHeight(barH);
     bar:SetPoint("CENTER",UIParent,"CENTER",0,-300);
     bar:SetMovable(true); bar:EnableMouse(true); bar:SetFrameStrata("MEDIUM");
-    bar:SetScript("OnMouseDown",function() if arg1=="LeftButton" then bar:StartMoving() end end);
-    bar:SetScript("OnMouseUp",function() bar:StopMovingOrSizing() end);
+    bar:SetScript("OnMouseDown", function()
+        if arg1 == "LeftButton" and IsShiftKeyDown() then bar:StartMoving() end
+    end);
+    bar:SetScript("OnMouseUp", function() bar:StopMovingOrSizing() end);
 
     -- Unified background panel (fades in on hover, covers the whole bar incl. handle strip)
     local barBg = CreateFrame("Frame", nil, bar);
@@ -1348,12 +1350,6 @@ do
     local barBgTex = barBg:CreateTexture(nil, "BACKGROUND");
     barBgTex:SetAllPoints(barBg);
     barBgTex:SetTexture(0.05, 0.05, 0.05, 0.88);
-
-    local dragLabel = barBg:CreateFontString(nil, "OVERLAY");
-    dragLabel:SetFont("Fonts\\FRIZQT__.TTF", 7, "OUTLINE");
-    dragLabel:SetPoint("CENTER", barBg, "BOTTOM", 0, HANDLE_H / 2);
-    dragLabel:SetTextColor(0.55, 0.55, 0.55, 1);
-    dragLabel:SetText("drag");
 
     local flyoutFrames = {};
     local barButtons   = {};
@@ -1668,7 +1664,7 @@ do
     end
 
     -- SLASH
-    SLASH_STMENU_1="/stmenu";
+    SLASH_STMENU1="/stmenu";
     SlashCmdList["STMENU"]=function()
         if bar:IsVisible() then CloseAllFlyouts(); bar:Hide() else bar:Show() end
         PlaySound("igMainMenuOption");
