@@ -451,19 +451,25 @@ local function DropTotems()
             else                             configuredSpell = settings.WATER_TOTEM end
         end
 
-        -- In strict mode, if a manually dropped totem differs from the configured
-        -- one, reset it so PHASE 2 will recast with the correct totem.
-        if settings.STRICT_MODE and totem.spell ~= configuredSpell and totem.locallyVerified then
-            PrintMessage("Strict mode: resetting "..totem.element.." ("..tostring(totem.spell).." -> "..tostring(configuredSpell)..")");
-            totemState[i].locallyVerified = false;
-            totemState[i].serverVerified  = false;
-            totemState[i].localVerifyTime = 0;
-            totemState[i].unitId = nil;
-            totemPositions[totem.element] = nil;
+        -- In strict mode, a verified totem that isn't the configured spell gets
+        -- reset so PHASE 2 recasts it. In non-strict mode, leave it alone.
+        if totem.locallyVerified and totem.spell ~= configuredSpell then
+            if settings.STRICT_MODE then
+                PrintMessage("Strict mode: replacing "..tostring(totem.spell).." with "..tostring(configuredSpell));
+                totemState[i].locallyVerified = false;
+                totemState[i].serverVerified  = false;
+                totemState[i].localVerifyTime = 0;
+                totemState[i].unitId          = nil;
+                totemPositions[totem.element] = nil;
+                totemState[i].spell = configuredSpell;
+                totemState[i].buff  = configuredSpell and TOTEM_DEFINITIONS[configuredSpell] and TOTEM_DEFINITIONS[configuredSpell].buff;
+            end
+            -- non-strict: leave totem.spell as-is, PHASE 2 will skip it (locallyVerified=true)
+        elseif not totem.locallyVerified then
+            -- Slot is empty/unverified - always update to configured spell
+            totemState[i].spell = configuredSpell;
+            totemState[i].buff  = configuredSpell and TOTEM_DEFINITIONS[configuredSpell] and TOTEM_DEFINITIONS[configuredSpell].buff;
         end
-
-        totemState[i].spell = configuredSpell;
-        totemState[i].buff  = configuredSpell and TOTEM_DEFINITIONS[configuredSpell] and TOTEM_DEFINITIONS[configuredSpell].buff;
     end
 
     if settings.AUTO_SHIELD_MODE and not HasBuff(settings.SHIELD_TYPE, 'player') then
@@ -787,8 +793,8 @@ local function SetEarthTotem(totemName, displayName)
         settings.EARTH_TOTEM = totemName; SuperTotemDB.EARTH_TOTEM = totemName;
         for i,totem in ipairs(totemState) do
             if totem.element=="earth" then
-                totemState[i].spell=totemName;
                 if totem.spell ~= totemName then
+                    totemState[i].spell=totemName;
                     totemState[i].locallyVerified=false; totemState[i].serverVerified=false;
                     totemState[i].localVerifyTime=0; totemState[i].unitId=nil; totemPositions.earth=nil;
                     lastAllTotemsActiveTime=0;
@@ -820,8 +826,8 @@ local function SetFireTotem(totemName, displayName)
         settings.FIRE_TOTEM = totemName; SuperTotemDB.FIRE_TOTEM = totemName;
         for i,totem in ipairs(totemState) do
             if totem.element=="fire" then
-                totemState[i].spell=totemName;
                 if totem.spell ~= totemName then
+                    totemState[i].spell=totemName;
                     totemState[i].locallyVerified=false; totemState[i].serverVerified=false;
                     totemState[i].localVerifyTime=0; totemState[i].unitId=nil; totemPositions.fire=nil;
                     lastAllTotemsActiveTime=0;
@@ -854,8 +860,8 @@ local function SetAirTotem(totemName, displayName)
         settings.AIR_TOTEM = totemName; SuperTotemDB.AIR_TOTEM = totemName;
         for i,totem in ipairs(totemState) do
             if totem.element=="air" then
-                totemState[i].spell=totemName;
                 if totem.spell ~= totemName then
+                    totemState[i].spell=totemName;
                     totemState[i].locallyVerified=false; totemState[i].serverVerified=false;
                     totemState[i].localVerifyTime=0; totemState[i].unitId=nil; totemPositions.air=nil;
                     lastAllTotemsActiveTime=0;
@@ -887,8 +893,8 @@ local function SetWaterTotem(totemName, displayName)
         settings.WATER_TOTEM = totemName; SuperTotemDB.WATER_TOTEM = totemName;
         for i,totem in ipairs(totemState) do
             if totem.element=="water" then
-                totemState[i].spell=totemName;
                 if totem.spell ~= totemName then
+                    totemState[i].spell=totemName;
                     totemState[i].locallyVerified=false; totemState[i].serverVerified=false;
                     totemState[i].localVerifyTime=0; totemState[i].unitId=nil; totemPositions.water=nil;
                     lastAllTotemsActiveTime=0;
@@ -1330,7 +1336,7 @@ do
     local SLIDER_H        = TOGGLE_BTN_SIZE + 4;
     local BAR_PADDING     = 0;
     local TOGGLE_PADDING  = 0;
-    local HANDLE_H        = 14;
+    local HANDLE_H        = 0;
 
     local barW = BAR_BTN_SIZE * 4;
     local barH = BAR_BTN_SIZE + HANDLE_H;
@@ -1339,17 +1345,18 @@ do
     bar:SetWidth(barW); bar:SetHeight(barH);
     bar:SetPoint("CENTER",UIParent,"CENTER",0,-300);
     bar:SetMovable(true); bar:EnableMouse(true); bar:SetFrameStrata("MEDIUM");
-    bar:SetScript("OnMouseDown", function()
-        if arg1 == "LeftButton" and IsShiftKeyDown() then bar:StartMoving() end
+    bar:RegisterForDrag("LeftButton");
+    bar:SetScript("OnDragStart", function()
+        if IsShiftKeyDown() then bar:StartMoving() end
     end);
-    bar:SetScript("OnMouseUp", function() bar:StopMovingOrSizing() end);
+    bar:SetScript("OnDragStop", function() bar:StopMovingOrSizing() end);
 
-    -- Unified background panel (fades in on hover, covers the whole bar incl. handle strip)
+    -- Unified background panel
     local barBg = CreateFrame("Frame", nil, bar);
     barBg:SetAllPoints(bar);
     local barBgTex = barBg:CreateTexture(nil, "BACKGROUND");
     barBgTex:SetAllPoints(barBg);
-    barBgTex:SetTexture(0.05, 0.05, 0.05, 0.88);
+    barBgTex:SetTexture(0.05, 0.05, 0.05, 0);
 
     local flyoutFrames = {};
     local barButtons   = {};
@@ -1475,6 +1482,9 @@ do
         local elDef=ELEMENTS[colIdx]; local elementKey=elDef.key; local dbKey=elDef.dbKey;
 
         local mainBtn=CreateFrame("Button",nil,bar);
+        mainBtn:RegisterForDrag("LeftButton");
+        mainBtn:SetScript("OnDragStart", function() if IsShiftKeyDown() then bar:StartMoving() end end);
+        mainBtn:SetScript("OnDragStop", function() bar:StopMovingOrSizing() end);
         mainBtn:SetWidth(BAR_BTN_SIZE); mainBtn:SetHeight(SLIDER_H);
         mainBtn:SetHitRectInsets(0, 0, 0, -math.floor(BAR_BTN_SIZE * 0.8 - SLIDER_H));
         mainBtn:SetPoint("TOPLEFT",bar,"TOPLEFT",(colIdx-1)*BAR_BTN_SIZE,0);
@@ -1497,6 +1507,9 @@ do
         local timerLayers={};
 
         local activeBtn=CreateFrame("Button",nil,bar);
+        activeBtn:RegisterForDrag("LeftButton");
+        activeBtn:SetScript("OnDragStart", function() if IsShiftKeyDown() then bar:StartMoving() end end);
+        activeBtn:SetScript("OnDragStop", function() bar:StopMovingOrSizing() end);
         activeBtn:SetWidth(BAR_BTN_SIZE); activeBtn:SetHeight(BAR_BTN_SIZE);
         activeBtn:SetPoint("TOP",mainBtn,"BOTTOM",0,-(BAR_BTN_SIZE - SLIDER_H - HANDLE_H));
 
@@ -1751,8 +1764,11 @@ do
     for i=1,table.getn(toggleDefs) do
         local def=toggleDefs[i];
         local btn=CreateFrame("Button",nil,bar);
+        btn:RegisterForDrag("LeftButton");
+        btn:SetScript("OnDragStart", function() if IsShiftKeyDown() then bar:StartMoving() end end);
+        btn:SetScript("OnDragStop", function() bar:StopMovingOrSizing() end);
         btn:SetWidth(TOGGLE_BTN_SIZE); btn:SetHeight(TOGGLE_BTN_SIZE);
-        btn:SetPoint("BOTTOMLEFT",bar,"TOPLEFT",(i-1)*TOGGLE_BTN_SIZE,6);
+        btn:SetPoint("BOTTOMLEFT",bar,"TOPLEFT",(i-1)*TOGGLE_BTN_SIZE,8);
         local bg=btn:CreateTexture(nil,"BACKGROUND"); bg:SetAllPoints(btn); bg:SetTexture(0.12,0.12,0.12,0.75); btn.bg=bg;
         local lbl=btn:CreateFontString(nil,"OVERLAY"); lbl:SetFont("Fonts\\FRIZQT__.TTF",8,"OUTLINE");
         lbl:SetAllPoints(btn); lbl:SetJustifyH("CENTER"); lbl:SetJustifyV("MIDDLE");
@@ -1857,7 +1873,7 @@ do
     local rangeSlider=CreateFrame("Slider","ST_RangeSlider",bar);
     rangeSlider:SetOrientation("HORIZONTAL");
     rangeSlider:SetWidth(SLIDER_W); rangeSlider:SetHeight(SLIDER_H);
-    rangeSlider:SetPoint("BOTTOMLEFT",bar,"TOPLEFT",toggleRowEnd,6);
+    rangeSlider:SetPoint("BOTTOMLEFT",bar,"TOPLEFT",toggleRowEnd,8);
     rangeSlider:SetMinMaxValues(10,40); rangeSlider:SetValueStep(1); rangeSlider:SetValue(TOTEM_RANGE);
     rangeSlider:SetBackdrop({ bgFile="Interface\\Buttons\\UI-SliderBar-Background",
         edgeFile="Interface\\Buttons\\UI-SliderBar-Border", tile=true, tileSize=8, edgeSize=8,
