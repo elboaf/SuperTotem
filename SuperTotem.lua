@@ -1485,8 +1485,8 @@ do
         mainBtn:RegisterForDrag("LeftButton");
         mainBtn:SetScript("OnDragStart", function() if IsShiftKeyDown() then bar:StartMoving() end end);
         mainBtn:SetScript("OnDragStop", function() bar:StopMovingOrSizing() end);
-        mainBtn:SetWidth(BAR_BTN_SIZE); mainBtn:SetHeight(SLIDER_H);
-        mainBtn:SetHitRectInsets(0, 0, 0, -math.floor(BAR_BTN_SIZE * 0.8 - SLIDER_H));
+        mainBtn:SetWidth(BAR_BTN_SIZE); mainBtn:SetHeight(BAR_BTN_SIZE);
+        mainBtn:SetHitRectInsets(0, 0, 0, 0);
         mainBtn:SetPoint("TOPLEFT",bar,"TOPLEFT",(colIdx-1)*BAR_BTN_SIZE,0);
 
         local slotTex=mainBtn:CreateTexture(nil,"BACKGROUND");
@@ -1768,7 +1768,7 @@ do
         btn:SetScript("OnDragStart", function() if IsShiftKeyDown() then bar:StartMoving() end end);
         btn:SetScript("OnDragStop", function() bar:StopMovingOrSizing() end);
         btn:SetWidth(TOGGLE_BTN_SIZE); btn:SetHeight(TOGGLE_BTN_SIZE);
-        btn:SetPoint("BOTTOMLEFT",bar,"TOPLEFT",(i-1)*TOGGLE_BTN_SIZE,8);
+        btn:SetPoint("BOTTOMLEFT",bar,"TOPLEFT",(i-1)*TOGGLE_BTN_SIZE,12);
         local bg=btn:CreateTexture(nil,"BACKGROUND"); bg:SetAllPoints(btn); bg:SetTexture(0.12,0.12,0.12,0.75); btn.bg=bg;
         local lbl=btn:CreateFontString(nil,"OVERLAY"); lbl:SetFont("Fonts\\FRIZQT__.TTF",8,"OUTLINE");
         lbl:SetAllPoints(btn); lbl:SetJustifyH("CENTER"); lbl:SetJustifyV("MIDDLE");
