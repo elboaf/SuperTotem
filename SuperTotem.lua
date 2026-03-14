@@ -1,8 +1,12 @@
 -- SuperTotem.lua
 -- Main script for SuperTotem addon with SuperWoW totem detection and range checking
 
--- SavedVariables table
-SuperTotemDB = SuperTotemDB or {
+-- SavedVariables table -- populated by WoW before ADDON_LOADED fires.
+-- Do NOT read SuperTotemDB here; it is nil at script load time.
+-- All initialisation happens in OnEvent -> ADDON_LOADED below.
+SuperTotemDB = SuperTotemDB or {};
+
+local settings = {
     DEBUG_MODE = false,
     FOLLOW_ENABLED = false,
     CHAIN_HEAL_ENABLED = false,
@@ -20,26 +24,6 @@ SuperTotemDB = SuperTotemDB or {
     WATER_TOTEM = "Mana Spring Totem",
     FOLLOW_TARGET_NAME = nil,
     FOLLOW_TARGET_UNIT = "party1",
-};
-
-local settings = {
-    DEBUG_MODE = SuperTotemDB.DEBUG_MODE,
-    FOLLOW_ENABLED = SuperTotemDB.FOLLOW_ENABLED,
-    CHAIN_HEAL_ENABLED = SuperTotemDB.CHAIN_HEAL_ENABLED,
-    HEALTH_THRESHOLD = SuperTotemDB.HEALTH_THRESHOLD,
-    STRATHOLME_MODE = SuperTotemDB.STRATHOLME_MODE,
-    ZG_MODE = SuperTotemDB.ZG_MODE,
-    HYBRID_MODE = SuperTotemDB.HYBRID_MODE,
-    PET_HEALING_ENABLED = SuperTotemDB.PET_HEALING_ENABLED,
-    AUTO_SHIELD_MODE = SuperTotemDB.AUTO_SHIELD_MODE,
-    SHIELD_TYPE = SuperTotemDB.SHIELD_TYPE or "Water Shield",
-    STRICT_MODE = SuperTotemDB.STRICT_MODE ~= false,
-    EARTH_TOTEM = SuperTotemDB.EARTH_TOTEM,
-    FIRE_TOTEM = SuperTotemDB.FIRE_TOTEM,
-    AIR_TOTEM = SuperTotemDB.AIR_TOTEM,
-    WATER_TOTEM = SuperTotemDB.WATER_TOTEM,
-    FOLLOW_TARGET_NAME = SuperTotemDB.FOLLOW_TARGET_NAME,
-    FOLLOW_TARGET_UNIT = SuperTotemDB.FOLLOW_TARGET_UNIT or "party1",
 };
 
 local SPELL_ID_LOOKUP = {
@@ -778,7 +762,7 @@ end
 -- TOTEM SETTERS
 local function SetEarthTotem(totemName, displayName)
     if not totemName or totemName == "" then
-        settings.EARTH_TOTEM = nil; SuperTotemDB.EARTH_TOTEM = nil;
+        settings.EARTH_TOTEM = nil; SuperTotemDB.EARTH_TOTEM = "none";
         for i,totem in ipairs(totemState) do
             if totem.element=="earth" then
                 totemState[i].spell=nil; totemState[i].locallyVerified=false;
@@ -811,7 +795,7 @@ end
 
 local function SetFireTotem(totemName, displayName)
     if not totemName or totemName == "" then
-        settings.FIRE_TOTEM = nil; SuperTotemDB.FIRE_TOTEM = nil;
+        settings.FIRE_TOTEM = nil; SuperTotemDB.FIRE_TOTEM = "none";
         for i,totem in ipairs(totemState) do
             if totem.element=="fire" then
                 totemState[i].spell=nil; totemState[i].locallyVerified=false;
@@ -845,7 +829,7 @@ end
 
 local function SetAirTotem(totemName, displayName)
     if not totemName or totemName == "" then
-        settings.AIR_TOTEM = nil; SuperTotemDB.AIR_TOTEM = nil;
+        settings.AIR_TOTEM = nil; SuperTotemDB.AIR_TOTEM = "none";
         for i,totem in ipairs(totemState) do
             if totem.element=="air" then
                 totemState[i].spell=nil; totemState[i].locallyVerified=false;
@@ -878,7 +862,7 @@ end
 
 local function SetWaterTotem(totemName, displayName)
     if not totemName or totemName == "" then
-        settings.WATER_TOTEM = nil; SuperTotemDB.WATER_TOTEM = nil;
+        settings.WATER_TOTEM = nil; SuperTotemDB.WATER_TOTEM = "none";
         for i,totem in ipairs(totemState) do
             if totem.element=="water" then
                 totemState[i].spell=nil; totemState[i].locallyVerified=false;
@@ -1212,10 +1196,67 @@ OnExternalTotemicRecall = function()
     DEFAULT_CHAT_FRAME:AddMessage("Totems: RECALLED", 0, 1, 0);
 end
 
-local function OnEvent(event, arg1)
-    if event=="ADDON_LOADED" and arg1=="SuperTotem" then
-        for k,v in pairs(SuperTotemDB) do settings[k]=v end
+local function OnEvent()
+    if event=="VARIABLES_LOADED" then
+        -- Merge saved values over defaults, with type-safe fallbacks
+        local db = SuperTotemDB;
+        settings.DEBUG_MODE          = db.DEBUG_MODE          or false;
+        settings.FOLLOW_ENABLED      = db.FOLLOW_ENABLED      or false;
+        settings.CHAIN_HEAL_ENABLED  = db.CHAIN_HEAL_ENABLED  or false;
+        settings.HEALTH_THRESHOLD    = db.HEALTH_THRESHOLD    or 90;
+        settings.STRATHOLME_MODE     = db.STRATHOLME_MODE     or false;
+        settings.ZG_MODE             = db.ZG_MODE             or false;
+        settings.HYBRID_MODE         = db.HYBRID_MODE         or false;
+        settings.PET_HEALING_ENABLED = db.PET_HEALING_ENABLED or false;
+        settings.AUTO_SHIELD_MODE    = db.AUTO_SHIELD_MODE    or false;
+        settings.SHIELD_TYPE         = db.SHIELD_TYPE         or "Water Shield";
+        settings.STRICT_MODE         = db.STRICT_MODE ~= false;
+        local function loadTotem(val, default)
+            if val == "none" then return nil end
+            return val or default;
+        end
+        settings.EARTH_TOTEM = loadTotem(db.EARTH_TOTEM, "Strength of Earth Totem");
+        settings.FIRE_TOTEM  = loadTotem(db.FIRE_TOTEM,  "Flametongue Totem");
+        settings.AIR_TOTEM   = loadTotem(db.AIR_TOTEM,   "Windfury Totem");
+        settings.WATER_TOTEM = loadTotem(db.WATER_TOTEM,  "Mana Spring Totem");
+        settings.FOLLOW_TARGET_NAME  = db.FOLLOW_TARGET_NAME;
+        settings.FOLLOW_TARGET_UNIT  = db.FOLLOW_TARGET_UNIT  or "party1";
+
+        -- Persist defaults back so new keys are written on first logout
+        db.DEBUG_MODE          = settings.DEBUG_MODE;
+        db.FOLLOW_ENABLED      = settings.FOLLOW_ENABLED;
+        db.CHAIN_HEAL_ENABLED  = settings.CHAIN_HEAL_ENABLED;
+        db.HEALTH_THRESHOLD    = settings.HEALTH_THRESHOLD;
+        db.STRATHOLME_MODE     = settings.STRATHOLME_MODE;
+        db.ZG_MODE             = settings.ZG_MODE;
+        db.HYBRID_MODE         = settings.HYBRID_MODE;
+        db.PET_HEALING_ENABLED = settings.PET_HEALING_ENABLED;
+        db.AUTO_SHIELD_MODE    = settings.AUTO_SHIELD_MODE;
+        db.SHIELD_TYPE         = settings.SHIELD_TYPE;
+        db.STRICT_MODE         = settings.STRICT_MODE;
+        db.EARTH_TOTEM         = settings.EARTH_TOTEM or db.EARTH_TOTEM or "none";
+        db.FIRE_TOTEM          = settings.FIRE_TOTEM  or db.FIRE_TOTEM  or "none";
+        db.AIR_TOTEM           = settings.AIR_TOTEM   or db.AIR_TOTEM   or "none";
+        db.WATER_TOTEM         = settings.WATER_TOTEM or db.WATER_TOTEM or "none";
+        db.FOLLOW_TARGET_NAME  = settings.FOLLOW_TARGET_NAME;
+        db.FOLLOW_TARGET_UNIT  = settings.FOLLOW_TARGET_UNIT;
+
+        -- Load range values
+        TOTEM_RANGE = db.TOTEM_RANGE or 30;
+        db.TOTEM_RANGE = TOTEM_RANGE;
+        TOTEM_RANGE_OVERRIDE["Searing Totem"] = db.SEARING_RANGE or 20;
+        TOTEM_RANGE_OVERRIDE["Magma Totem"]   = db.MAGMA_RANGE   or 8;
+        db.SEARING_RANGE = TOTEM_RANGE_OVERRIDE["Searing Totem"];
+        db.MAGMA_RANGE   = TOTEM_RANGE_OVERRIDE["Magma Totem"];
+
         totemState = InitializeTotemState();
+
+        -- Refresh UI to reflect loaded settings
+        if ST_TotemBar_RefreshIcons   then ST_TotemBar_RefreshIcons()   end
+        if ST_TotemBar_RefreshToggles then ST_TotemBar_RefreshToggles() end
+        if ST_TotemBar_RefreshFireSlider then ST_TotemBar_RefreshFireSlider() end
+        if ST_RangeSlider_Refresh     then ST_RangeSlider_Refresh()     end
+
         if SUPERWOW_VERSION then
             superwowEnabled=true
             DEFAULT_CHAT_FRAME:AddMessage("SuperTotem: SuperWoW v"..tostring(SUPERWOW_VERSION).." detected.");
@@ -1227,7 +1268,7 @@ local function OnEvent(event, arg1)
     end
 end
 local f=CreateFrame("Frame");
-f:RegisterEvent("ADDON_LOADED");
+f:RegisterEvent("VARIABLES_LOADED");
 f:SetScript("OnEvent",OnEvent);
 PrintUsage();
 
@@ -1891,8 +1932,11 @@ do
         for i=2,table.getn(RANGE_STOPS) do
             local d=math.abs(raw-RANGE_STOPS[i]); if d<bestDist then best=RANGE_STOPS[i]; bestDist=d end
         end
-        TOTEM_RANGE=best; rangeLabel:SetText(best.."y");
+        TOTEM_RANGE=best; SuperTotemDB.TOTEM_RANGE=best; rangeLabel:SetText(best.."y");
     end);
+    function ST_RangeSlider_Refresh()
+        rangeSlider:SetValue(TOTEM_RANGE-1); rangeSlider:SetValue(TOTEM_RANGE);
+    end
     rangeSlider:SetScript("OnEnter",function()
         barHovered = true;
         tt:ClearLines(); tt:SetOwner(rangeSlider,"ANCHOR_RIGHT");
@@ -1950,6 +1994,8 @@ do
         local cur=settings.FIRE_TOTEM;
         if cur=="Searing Totem" or cur=="Magma Totem" then
             TOTEM_RANGE_OVERRIDE[cur]=best;
+            if cur=="Searing Totem" then SuperTotemDB.SEARING_RANGE=best
+            else                         SuperTotemDB.MAGMA_RANGE=best end
             fireRangeLabel:SetText((cur=="Searing Totem" and "Sear: " or "Magma: ")..best.."y");
         end
     end);
