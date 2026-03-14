@@ -1768,7 +1768,7 @@ do
         btn:SetScript("OnDragStart", function() if IsShiftKeyDown() then bar:StartMoving() end end);
         btn:SetScript("OnDragStop", function() bar:StopMovingOrSizing() end);
         btn:SetWidth(TOGGLE_BTN_SIZE); btn:SetHeight(TOGGLE_BTN_SIZE);
-        btn:SetPoint("BOTTOMLEFT",bar,"TOPLEFT",(i-1)*TOGGLE_BTN_SIZE,12);
+        btn:SetPoint("TOPLEFT",bar,"BOTTOMLEFT",(i-1)*TOGGLE_BTN_SIZE,-2);
         local bg=btn:CreateTexture(nil,"BACKGROUND"); bg:SetAllPoints(btn); bg:SetTexture(0.12,0.12,0.12,0.75); btn.bg=bg;
         local lbl=btn:CreateFontString(nil,"OVERLAY"); lbl:SetFont("Fonts\\FRIZQT__.TTF",8,"OUTLINE");
         lbl:SetAllPoints(btn); lbl:SetJustifyH("CENTER"); lbl:SetJustifyV("MIDDLE");
@@ -1802,7 +1802,7 @@ do
     local FLY_BTN_SIZE = TOGGLE_BTN_SIZE;
     shieldFlyout:SetWidth(FLY_BTN_SIZE);
     shieldFlyout:SetHeight(FLY_BTN_SIZE * table.getn(SHIELD_OPTS));
-    shieldFlyout:SetPoint("BOTTOMLEFT", toggleButtons["AS"], "TOPLEFT", 0, 2);
+    shieldFlyout:SetPoint("TOPLEFT", toggleButtons["AS"], "BOTTOMLEFT", 0, -2);
     shieldFlyout:EnableMouse(true);
     shieldFlyout:SetScript("OnEnter", function() barHovered = true end);
     shieldFlyout:SetScript("OnLeave", function() barHovered = false end);
@@ -1814,7 +1814,7 @@ do
         local opt = SHIELD_OPTS[j];
         local fb = CreateFrame("Button", nil, shieldFlyout);
         fb:SetWidth(FLY_BTN_SIZE); fb:SetHeight(FLY_BTN_SIZE);
-        fb:SetPoint("BOTTOMLEFT", shieldFlyout, "BOTTOMLEFT", 0, (j-1)*FLY_BTN_SIZE);
+        fb:SetPoint("TOPLEFT", shieldFlyout, "TOPLEFT", 0, -(j-1)*FLY_BTN_SIZE);
         local fbg = fb:CreateTexture(nil,"BACKGROUND"); fbg:SetAllPoints(fb);
         fbg:SetTexture(0.12,0.12,0.12,0.85);
         local fhi = fb:CreateTexture(nil,"HIGHLIGHT"); fhi:SetTexture(1,1,1,0.15); fhi:SetAllPoints(fb); fb:SetHighlightTexture(fhi);
@@ -1873,7 +1873,7 @@ do
     local rangeSlider=CreateFrame("Slider","ST_RangeSlider",bar);
     rangeSlider:SetOrientation("HORIZONTAL");
     rangeSlider:SetWidth(SLIDER_W); rangeSlider:SetHeight(SLIDER_H);
-    rangeSlider:SetPoint("BOTTOMLEFT",bar,"TOPLEFT",toggleRowEnd,8);
+    rangeSlider:SetPoint("TOPLEFT",bar,"BOTTOMLEFT",toggleRowEnd,6);
     rangeSlider:SetMinMaxValues(10,40); rangeSlider:SetValueStep(1); rangeSlider:SetValue(TOTEM_RANGE);
     rangeSlider:SetBackdrop({ bgFile="Interface\\Buttons\\UI-SliderBar-Background",
         edgeFile="Interface\\Buttons\\UI-SliderBar-Border", tile=true, tileSize=8, edgeSize=8,
@@ -1912,7 +1912,7 @@ do
     local fireRangeSlider=CreateFrame("Slider","BP_FireRangeSlider",bar);
     fireRangeSlider:SetOrientation("HORIZONTAL");
     fireRangeSlider:SetWidth(SLIDER_W); fireRangeSlider:SetHeight(SLIDER_H);
-    fireRangeSlider:SetPoint("BOTTOMLEFT",rangeSlider,"TOPLEFT",0,-6);
+    fireRangeSlider:SetPoint("TOPLEFT",rangeSlider,"BOTTOMLEFT",0,6);
     fireRangeSlider:SetMinMaxValues(3,20); fireRangeSlider:SetValueStep(1);
     fireRangeSlider:SetBackdrop({ bgFile="Interface\\Buttons\\UI-SliderBar-Background",
         edgeFile="Interface\\Buttons\\UI-SliderBar-Border", tile=true, tileSize=8, edgeSize=8,
