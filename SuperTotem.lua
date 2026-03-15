@@ -531,6 +531,12 @@ local function DropTotems()
     end
 
     -- PHASE 2: drop missing totems
+    local function IsOnCooldown(spellName)
+        local start, duration = GetSpellCooldown(spellName);
+        if not start or not duration then return false end
+        return duration > 0 and (start + duration) > currentTime;
+    end
+
     for i, totem in ipairs(totemState) do
         local isCleansingTotem = false
         if settings.STRATHOLME_MODE and totem.element == "water" and totem.spell == "Disease Cleansing Totem" then isCleansingTotem = true
@@ -550,6 +556,10 @@ local function DropTotems()
             if not totem.spell or totem.spell == "" then
                 totemState[i].locallyVerified = true; totemState[i].serverVerified = true;
                 PrintMessage("Skipping "..totem.element.." totem (disabled)");
+            elseif IsOnCooldown(totem.spell) then
+                -- Spell is on cooldown (e.g. Grounding Totem): leave this slot unverified
+                -- so it will be retried next cycle, but don't return — keep dropping others.
+                PrintMessage("Skipping "..totem.spell.." (on cooldown)");
             else
                 BPCast(totem.spell);
                 if ST_TotemBar_StartTimer then
