@@ -74,7 +74,7 @@ A second **fire range slider** appears below when Searing Totem or Magma Totem i
 
 ## Fallback Totems
 
-Grounding Totem, Fire Nova Totem, and Earthbind Totem all have cooldowns that exceed their active lifetime. When one of these is configured as your primary, the addon supports an automatic **fallback totem** that drops in its place while the primary is on cooldown.
+Grounding Totem, Fire Nova Totem, and Earthbind Totem all have cooldowns that either exceed their active lifetime or are totems prone to early destruction. When one of these is configured as your primary, the addon supports an automatic **fallback totem** that drops in its place while the primary is on cooldown.
 
 **How it works:**
 
