@@ -24,6 +24,19 @@ local settings = {
     WATER_TOTEM = "Mana Spring Totem",
     FOLLOW_TARGET_NAME = nil,
     FOLLOW_TARGET_UNIT = "party1",
+    -- Fallback totems: auto-captured when a cooldown totem is selected
+    EARTH_TOTEM_FB = nil,
+    FIRE_TOTEM_FB  = nil,
+    AIR_TOTEM_FB   = nil,
+    FALLBACK_ENABLED = true,
+};
+
+-- Totems that have a cooldown exceeding their lifetime.
+-- When one of these is selected, the previous totem is saved as an implicit fallback.
+local COOLDOWN_TOTEM_CD = {
+    ["Grounding Totem"]  = 15,
+    ["Fire Nova Totem"]  = 15,
+    ["Earthbind Totem"]  = 20,
 };
 
 local SPELL_ID_LOOKUP = {
@@ -218,8 +231,7 @@ local function HandleExternalSpellName(spellName)
         end
         OnExternalTotemicRecall();
     elseif settings.DEBUG_MODE then
-        -- Log unrecognized spell names to help diagnose future mismatches
-        PrintMessage("Unrecognized spell in hook: '");
+        -- Non-totem spells are expected and not worth logging
     end
 end
 
@@ -444,6 +456,19 @@ local function DropTotems()
     if CheckAndRefreshShield() then return end
     if currentTime - lastTotemCastTime < TOTEM_CAST_DELAY then return end
 
+    local function IsOnCooldown(spellName)
+        local start, duration = GetSpellCooldown(spellName);
+        if not start or not duration then return false end
+        return duration > 0 and (start + duration) > currentTime;
+    end
+
+    local function GetFallback(element)
+        if element == "air"   then return settings.AIR_TOTEM_FB   end
+        if element == "fire"  then return settings.FIRE_TOTEM_FB  end
+        if element == "earth" then return settings.EARTH_TOTEM_FB end
+        return nil;
+    end
+
     for i, totem in ipairs(totemState) do
         local configuredSpell;
         if totem.element == "air" then
@@ -459,9 +484,12 @@ local function DropTotems()
         end
 
         -- In strict mode, a verified totem that isn't the configured spell gets
-        -- reset so PHASE 2 recasts it. In non-strict mode, leave it alone.
+        -- reset so PHASE 2 recasts it. Exception: if the slot is running the
+        -- fallback because the primary is on cooldown, leave it alone.
         if totem.locallyVerified and totem.spell ~= configuredSpell then
-            if settings.STRICT_MODE then
+            local fb = settings.FALLBACK_ENABLED and GetFallback(totem.element);
+            local runningFallback = fb and totem.spell == fb and configuredSpell and IsOnCooldown(configuredSpell);
+            if settings.STRICT_MODE and not runningFallback then
                 PrintMessage("Strict mode: replacing "..tostring(totem.spell).." with "..tostring(configuredSpell));
                 totemState[i].locallyVerified = false;
                 totemState[i].serverVerified  = false;
@@ -473,9 +501,14 @@ local function DropTotems()
             end
             -- non-strict: leave totem.spell as-is, PHASE 2 will skip it (locallyVerified=true)
         elseif not totem.locallyVerified then
-            -- Slot is empty/unverified - always update to configured spell
-            totemState[i].spell = configuredSpell;
-            totemState[i].buff  = configuredSpell and TOTEM_DEFINITIONS[configuredSpell] and TOTEM_DEFINITIONS[configuredSpell].buff;
+            -- Slot is empty/unverified - update to configured spell unless the primary
+            -- is on cooldown and we'll be dropping the fallback instead.
+            local fb = settings.FALLBACK_ENABLED and GetFallback(totem.element);
+            local willUseFallback = fb and configuredSpell and IsOnCooldown(configuredSpell);
+            if not willUseFallback then
+                totemState[i].spell = configuredSpell;
+                totemState[i].buff  = configuredSpell and TOTEM_DEFINITIONS[configuredSpell] and TOTEM_DEFINITIONS[configuredSpell].buff;
+            end
         end
     end
 
@@ -554,12 +587,6 @@ local function DropTotems()
     end
 
     -- PHASE 2: drop missing totems
-    local function IsOnCooldown(spellName)
-        local start, duration = GetSpellCooldown(spellName);
-        if not start or not duration then return false end
-        return duration > 0 and (start + duration) > currentTime;
-    end
-
     for i, totem in ipairs(totemState) do
         local isCleansingTotem = false
         if settings.STRATHOLME_MODE and totem.element == "water" and totem.spell == "Disease Cleansing Totem" then isCleansingTotem = true
@@ -580,9 +607,24 @@ local function DropTotems()
                 totemState[i].locallyVerified = true; totemState[i].serverVerified = true;
                 PrintMessage("Skipping "..totem.element.." totem (disabled)");
             elseif IsOnCooldown(totem.spell) then
-                -- Spell is on cooldown (e.g. Grounding Totem): leave this slot unverified
-                -- so it will be retried next cycle, but don't return — keep dropping others.
-                PrintMessage("Skipping "..totem.spell.." (on cooldown)");
+                local fb = settings.FALLBACK_ENABLED and GetFallback(totem.element);
+                if fb and not IsOnCooldown(fb) then
+                    -- Primary is on cooldown; drop fallback instead
+                    BPCast(fb);
+                    if ST_TotemBar_StartTimer then
+                        local el = string.upper(string.sub(totem.element,1,1))..string.sub(totem.element,2);
+                        ST_TotemBar_StartTimer(el, fb);
+                    end
+                    PrintMessage("Primary "..totem.spell.." on cooldown, casting fallback "..fb..".");
+                    totemState[i].spell = fb;
+                    totemState[i].buff  = TOTEM_DEFINITIONS[fb] and TOTEM_DEFINITIONS[fb].buff;
+                    totemState[i].locallyVerified = true; totemState[i].localVerifyTime = currentTime;
+                    totemState[i].unitId = nil; totemPositions[totem.element] = nil;
+                    lastTotemCastTime = currentTime; return;
+                else
+                    -- No fallback or fallback also on cooldown: leave unverified, continue to next slot
+                    PrintMessage("Skipping "..totem.spell.." (on cooldown, no fallback ready)");
+                end
             else
                 BPCast(totem.spell);
                 if ST_TotemBar_StartTimer then
@@ -796,6 +838,7 @@ end
 local function SetEarthTotem(totemName, displayName)
     if not totemName or totemName == "" then
         settings.EARTH_TOTEM = nil; SuperTotemDB.EARTH_TOTEM = "none";
+        settings.EARTH_TOTEM_FB = nil; SuperTotemDB.EARTH_TOTEM_FB = "none";
         for i,totem in ipairs(totemState) do
             if totem.element=="earth" then
                 totemState[i].spell=nil; totemState[i].locallyVerified=false;
@@ -807,6 +850,16 @@ local function SetEarthTotem(totemName, displayName)
         PrintMessage("Earth totem disabled.");
         if ST_TotemBar_RefreshIcons then ST_TotemBar_RefreshIcons() end
     elseif TOTEM_DEFINITIONS[totemName] then
+        -- If switching to a cooldown totem, save the previous totem as fallback.
+        -- If switching to a normal totem, clear any fallback.
+        if COOLDOWN_TOTEM_CD[totemName] then
+            if settings.EARTH_TOTEM and not COOLDOWN_TOTEM_CD[settings.EARTH_TOTEM] then
+                settings.EARTH_TOTEM_FB = settings.EARTH_TOTEM;
+                SuperTotemDB.EARTH_TOTEM_FB = settings.EARTH_TOTEM_FB;
+            end
+        else
+            settings.EARTH_TOTEM_FB = nil; SuperTotemDB.EARTH_TOTEM_FB = "none";
+        end
         settings.EARTH_TOTEM = totemName; SuperTotemDB.EARTH_TOTEM = totemName;
         for i,totem in ipairs(totemState) do
             if totem.element=="earth" then
@@ -829,6 +882,7 @@ end
 local function SetFireTotem(totemName, displayName)
     if not totemName or totemName == "" then
         settings.FIRE_TOTEM = nil; SuperTotemDB.FIRE_TOTEM = "none";
+        settings.FIRE_TOTEM_FB = nil; SuperTotemDB.FIRE_TOTEM_FB = "none";
         for i,totem in ipairs(totemState) do
             if totem.element=="fire" then
                 totemState[i].spell=nil; totemState[i].locallyVerified=false;
@@ -840,6 +894,14 @@ local function SetFireTotem(totemName, displayName)
         PrintMessage("Fire totem disabled.");
         if ST_TotemBar_RefreshIcons then ST_TotemBar_RefreshIcons() end
     elseif TOTEM_DEFINITIONS[totemName] then
+        if COOLDOWN_TOTEM_CD[totemName] then
+            if settings.FIRE_TOTEM and not COOLDOWN_TOTEM_CD[settings.FIRE_TOTEM] then
+                settings.FIRE_TOTEM_FB = settings.FIRE_TOTEM;
+                SuperTotemDB.FIRE_TOTEM_FB = settings.FIRE_TOTEM_FB;
+            end
+        else
+            settings.FIRE_TOTEM_FB = nil; SuperTotemDB.FIRE_TOTEM_FB = "none";
+        end
         settings.FIRE_TOTEM = totemName; SuperTotemDB.FIRE_TOTEM = totemName;
         for i,totem in ipairs(totemState) do
             if totem.element=="fire" then
@@ -863,6 +925,7 @@ end
 local function SetAirTotem(totemName, displayName)
     if not totemName or totemName == "" then
         settings.AIR_TOTEM = nil; SuperTotemDB.AIR_TOTEM = "none";
+        settings.AIR_TOTEM_FB = nil; SuperTotemDB.AIR_TOTEM_FB = "none";
         for i,totem in ipairs(totemState) do
             if totem.element=="air" then
                 totemState[i].spell=nil; totemState[i].locallyVerified=false;
@@ -874,6 +937,14 @@ local function SetAirTotem(totemName, displayName)
         PrintMessage("Air totem disabled.");
         if ST_TotemBar_RefreshIcons then ST_TotemBar_RefreshIcons() end
     elseif TOTEM_DEFINITIONS[totemName] then
+        if COOLDOWN_TOTEM_CD[totemName] then
+            if settings.AIR_TOTEM and not COOLDOWN_TOTEM_CD[settings.AIR_TOTEM] then
+                settings.AIR_TOTEM_FB = settings.AIR_TOTEM;
+                SuperTotemDB.AIR_TOTEM_FB = settings.AIR_TOTEM_FB;
+            end
+        else
+            settings.AIR_TOTEM_FB = nil; SuperTotemDB.AIR_TOTEM_FB = "none";
+        end
         settings.AIR_TOTEM = totemName; SuperTotemDB.AIR_TOTEM = totemName;
         for i,totem in ipairs(totemState) do
             if totem.element=="air" then
@@ -1252,6 +1323,10 @@ local function OnEvent()
         settings.FIRE_TOTEM  = loadTotem(db.FIRE_TOTEM,  "Flametongue Totem");
         settings.AIR_TOTEM   = loadTotem(db.AIR_TOTEM,   "Windfury Totem");
         settings.WATER_TOTEM = loadTotem(db.WATER_TOTEM,  "Mana Spring Totem");
+        settings.EARTH_TOTEM_FB = loadTotem(db.EARTH_TOTEM_FB, nil);
+        settings.FIRE_TOTEM_FB  = loadTotem(db.FIRE_TOTEM_FB,  nil);
+        settings.AIR_TOTEM_FB   = loadTotem(db.AIR_TOTEM_FB,   nil);
+        settings.FALLBACK_ENABLED = db.FALLBACK_ENABLED ~= false;
         settings.FOLLOW_TARGET_NAME  = db.FOLLOW_TARGET_NAME;
         settings.FOLLOW_TARGET_UNIT  = db.FOLLOW_TARGET_UNIT  or "party1";
 
@@ -1271,6 +1346,10 @@ local function OnEvent()
         db.FIRE_TOTEM          = settings.FIRE_TOTEM  or db.FIRE_TOTEM  or "none";
         db.AIR_TOTEM           = settings.AIR_TOTEM   or db.AIR_TOTEM   or "none";
         db.WATER_TOTEM         = settings.WATER_TOTEM or db.WATER_TOTEM or "none";
+        db.EARTH_TOTEM_FB      = settings.EARTH_TOTEM_FB or db.EARTH_TOTEM_FB or "none";
+        db.FIRE_TOTEM_FB       = settings.FIRE_TOTEM_FB  or db.FIRE_TOTEM_FB  or "none";
+        db.AIR_TOTEM_FB        = settings.AIR_TOTEM_FB   or db.AIR_TOTEM_FB   or "none";
+        db.FALLBACK_ENABLED    = settings.FALLBACK_ENABLED;
         db.FOLLOW_TARGET_NAME  = settings.FOLLOW_TARGET_NAME;
         db.FOLLOW_TARGET_UNIT  = settings.FOLLOW_TARGET_UNIT;
 
@@ -1289,6 +1368,7 @@ local function OnEvent()
         if ST_TotemBar_RefreshToggles then ST_TotemBar_RefreshToggles() end
         if ST_TotemBar_RefreshFireSlider then ST_TotemBar_RefreshFireSlider() end
         if ST_RangeSlider_Refresh     then ST_RangeSlider_Refresh()     end
+        if ST_TotemBar_RefreshFallbackBadges then ST_TotemBar_RefreshFallbackBadges() end
 
         if SUPERWOW_VERSION then
             superwowEnabled=true
@@ -1308,6 +1388,20 @@ PrintUsage();
 -- =============================================================
 -- TOTEM BAR  (/bpmenu)
 -- =============================================================
+
+local function SetFallbackTotem(element, totemName)
+    local el = string.lower(element);
+    if el == "air" then
+        settings.AIR_TOTEM_FB = totemName; SuperTotemDB.AIR_TOTEM_FB = totemName or "none";
+    elseif el == "fire" then
+        settings.FIRE_TOTEM_FB = totemName; SuperTotemDB.FIRE_TOTEM_FB = totemName or "none";
+    elseif el == "earth" then
+        settings.EARTH_TOTEM_FB = totemName; SuperTotemDB.EARTH_TOTEM_FB = totemName or "none";
+    end
+    PrintMessage("Fallback "..el.." totem set to "..(totemName or "none")..".");
+    if ST_TotemBar_RefreshFallbackBadges then ST_TotemBar_RefreshFallbackBadges() end
+end
+
 do
     local TOTEM_ICONS = {
         ["Strength of Earth Totem"] = "Interface\\Icons\\Spell_Nature_EarthBindTotem",
@@ -1510,9 +1604,36 @@ do
                 elseif settings.ZG_MODE then setTotem="Poison Cleansing Totem" end
             end
             local activeTotem=ts and ts.totemName
+            -- showActive: the currently running totem differs from the configured primary
+            -- (i.e. the fallback is active)
             local showActive=activeTotem and activeTotem~=setTotem
 
+            -- If the primary is a cooldown totem and it's on cooldown, show remaining
+            -- cooldown on the main icon in grey so the player knows when it's ready again.
+            local function ShowCooldownOnMain()
+                if not setTotem or not COOLDOWN_TOTEM_CD[setTotem] then return false end
+                local start, duration = GetSpellCooldown(setTotem);
+                if not start or not duration or duration == 0 then return false end
+                local rem = (start + duration) - now;
+                if rem <= 0 then return false end
+                SetTD(bb.timer, bb.timerLayers, FT(rem), 0.55, 0.55, 0.55);
+                return true;
+            end
+
             if ts then
+                -- If totemState has reset this slot (e.g. Grounding absorbed a spell,
+                -- totem expired, or was destroyed), kill the timer immediately.
+                local slotActive = false;
+                for si=1,table.getn(totemState) do
+                    local st = totemState[si];
+                    if string.lower(el.key) == st.element and (st.locallyVerified or st.serverVerified) then
+                        slotActive = true; break;
+                    end
+                end
+                if not slotActive then
+                    timerState[el.key]=nil; HideTD(bb.timer,bb.timerLayers)
+                    if bb.activeBtn then bb.activeBtn:Hide(); ResizeBar() end
+                else
                 local rem=ts.duration-(now-ts.startTime)
                 if ts.duration==0 or rem<=0 then
                     timerState[el.key]=nil; HideTD(bb.timer,bb.timerLayers)
@@ -1520,7 +1641,10 @@ do
                 else
                     local text=FT(rem); local r,g,b=TC(rem,ts.duration)
                     if showActive then
-                        HideTD(bb.timer,bb.timerLayers)
+                        -- Show primary cooldown on main icon (grey), fallback in activeBtn
+                        if not ShowCooldownOnMain() then
+                            HideTD(bb.timer,bb.timerLayers)
+                        end
                         if bb.activeBtn then
                             bb.activeIcon:SetTexture(TOTEM_ICONS[activeTotem] or FALLBACK_ICON)
                             SetTD(bb.activeTimer,bb.activeTimerLayers,text,r,g,b)
@@ -1531,8 +1655,11 @@ do
                         if bb.activeBtn then bb.activeBtn:Hide(); ResizeBar() end
                     end
                 end
+                end -- slotActive
             else
-                HideTD(bb.timer,bb.timerLayers)
+                if not ShowCooldownOnMain() then
+                    HideTD(bb.timer,bb.timerLayers)
+                end
                 if bb.activeBtn then bb.activeBtn:Hide(); ResizeBar() end
             end
         end
@@ -1609,6 +1736,14 @@ do
         barButtons[elementKey]={btn=mainBtn,icon=barIcon,timer=timerText,timerLayers=timerLayers,
             activeBtn=activeBtn,activeIcon=aIcon,activeTimer=aTimer,activeTimerLayers=aTimerLayers};
 
+        -- Small corner badge showing the fallback totem icon
+        local BADGE_SIZE = 18;
+        local fbBadge = mainBtn:CreateTexture(nil,"OVERLAY");
+        fbBadge:SetWidth(BADGE_SIZE); fbBadge:SetHeight(BADGE_SIZE);
+        fbBadge:SetPoint("BOTTOMRIGHT",mainBtn,"BOTTOMRIGHT",0,0);
+        fbBadge:Hide();
+        barButtons[elementKey].fbBadge = fbBadge;
+
         -- FLYOUT
         local maxRows=table.getn(elDef.totems);
         local flyH=FLY_PADDING*2+maxRows*FLY_ROW_H;
@@ -1640,17 +1775,44 @@ do
             fbCk:SetTexture("Interface\\Buttons\\CheckButtonHilight"); fbCk:SetAllPoints(fb);
             fbCk:SetBlendMode("ADD"); fb:SetCheckedTexture(fbCk);
             fb.totemName=thisTotem; fb.elementKey=elementKey;
+            fb:RegisterForClicks("LeftButtonUp","RightButtonUp");
             fb:SetScript("OnClick",function()
-                ApplyTotemSelection(elementKey,thisTotem);
-                barButtons[elementKey].icon:SetTexture(TOTEM_ICONS[thisTotem] or FALLBACK_ICON);
-                barButtons[elementKey].icon:SetVertexColor(1, 1, 1, 1);
-                for i=1,table.getn(flyBtns) do
-                    flyBtns[i]:SetChecked(flyBtns[i].totemName==thisTotem and 1 or nil)
+                if arg1 == "RightButton" then
+                    -- Right-click sets fallback only when primary is a cooldown totem
+                    local primary = GetCurrentTotem(dbKey);
+                    if primary and COOLDOWN_TOTEM_CD[primary] and not COOLDOWN_TOTEM_CD[thisTotem] then
+                        SetFallbackTotem(elementKey, thisTotem);
+                        -- Refresh checked states: uncheck all, check only the new fallback
+                        for i=1,table.getn(flyBtns) do
+                            flyBtns[i]:SetChecked(flyBtns[i].totemName==thisTotem and 1 or nil)
+                        end
+                        tt:ClearLines(); tt:SetOwner(fb,"ANCHOR_RIGHT");
+                        tt:AddLine("Fallback set: "..thisTotem,0.4,1,0.4); tt:Show();
+                    end
+                else
+                    ApplyTotemSelection(elementKey,thisTotem);
+                    barButtons[elementKey].icon:SetTexture(TOTEM_ICONS[thisTotem] or FALLBACK_ICON);
+                    barButtons[elementKey].icon:SetVertexColor(1, 1, 1, 1);
+                    for i=1,table.getn(flyBtns) do
+                        flyBtns[i]:SetChecked(flyBtns[i].totemName==thisTotem and 1 or nil)
+                    end
+                    if elementKey=="Fire" and ST_TotemBar_RefreshFireSlider then ST_TotemBar_RefreshFireSlider() end
+                    CloseFlyout(elementKey); tt:Hide();
                 end
-                if elementKey=="Fire" and ST_TotemBar_RefreshFireSlider then ST_TotemBar_RefreshFireSlider() end
-                CloseFlyout(elementKey); tt:Hide();
             end);
-            fb:SetScript("OnEnter",function() CancelClose(elementKey); ShowSpellTip(fb,thisTotem) end);
+            fb:SetScript("OnEnter",function()
+                CancelClose(elementKey);
+                local primary = GetCurrentTotem(dbKey);
+                if primary and COOLDOWN_TOTEM_CD[primary] and not COOLDOWN_TOTEM_CD[thisTotem] then
+                    tt:ClearLines(); tt:SetOwner(fb,"ANCHOR_RIGHT");
+                    tt:AddLine(thisTotem,1,1,1);
+                    tt:AddLine("Left-click: set primary",0.8,0.8,0.8);
+                    tt:AddLine("Right-click: set as fallback",0.6,1,0.6);
+                    tt:Show();
+                else
+                    ShowSpellTip(fb,thisTotem);
+                end
+            end);
             fb:SetScript("OnLeave",function() tt:Hide(); ScheduleClose(elementKey) end);
             flyBtns[thisSlot]=fb;
         end
@@ -1699,11 +1861,22 @@ do
         -- resize flyout to fit the extra row
         fly:SetHeight(FLY_PADDING * 2 + noneSlot * FLY_ROW_H);
 
+        local fbSettingKey;
+        if     elementKey=="Air"   then fbSettingKey="AIR_TOTEM_FB"
+        elseif elementKey=="Fire"  then fbSettingKey="FIRE_TOTEM_FB"
+        elseif elementKey=="Earth" then fbSettingKey="EARTH_TOTEM_FB" end
+
         fly:SetScript("OnShow",function()
             local cur=GetCurrentTotem(dbKey);
+            local showFallback = cur and COOLDOWN_TOTEM_CD[cur];
+            local fb = showFallback and fbSettingKey and settings[fbSettingKey];
             for i=1,table.getn(flyBtns) do
                 local b=flyBtns[i]; b.icon:SetTexture(b.totemPath);
-                b:SetChecked(cur and b.totemName==cur and 1 or nil)
+                if showFallback then
+                    b:SetChecked(fb and b.totemName==fb and 1 or nil)
+                else
+                    b:SetChecked(cur and b.totemName==cur and 1 or nil)
+                end
             end
             noneBtn:SetChecked(not cur and 1 or nil);
         end);
@@ -1797,6 +1970,24 @@ do
             barButtons[el.key].icon:SetVertexColor(cur and 1 or 0.35, cur and 1 or 0.35, cur and 1 or 0.35, 1);
         end
         ST_TotemBar_UpdateMode();
+        ST_TotemBar_RefreshFallbackBadges();
+    end
+
+    local FB_DBKEYS = { Air="AIR_TOTEM_FB", Fire="FIRE_TOTEM_FB", Earth="EARTH_TOTEM_FB" };
+    function ST_TotemBar_RefreshFallbackBadges()
+        for i=1,table.getn(ELEMENTS) do
+            local el=ELEMENTS[i]; local bb=barButtons[el.key];
+            if bb and bb.fbBadge then
+                local fbKey = FB_DBKEYS[el.key];
+                local fb = fbKey and settings[fbKey];
+                if fb and settings.FALLBACK_ENABLED then
+                    bb.fbBadge:SetTexture(TOTEM_ICONS[fb] or FALLBACK_ICON);
+                    bb.fbBadge:Show();
+                else
+                    bb.fbBadge:Hide();
+                end
+            end
+        end
     end
 
     ST_TotemBar_RefreshIcons();
@@ -1821,6 +2012,11 @@ do
           end },
         { key="AS", label="S", tip="Automatic shield cast",     setting="AUTO_SHIELD_MODE",
           onToggle=function() end },
+        { key="FB", label="F", tip=function() return settings.FALLBACK_ENABLED and "Fallback totem enabled" or "Fallback totem disabled" end, setting="FALLBACK_ENABLED",
+          onToggle=function()
+              ToggleSetting("FALLBACK_ENABLED","Fallback totem");
+              if ST_TotemBar_RefreshFallbackBadges then ST_TotemBar_RefreshFallbackBadges() end
+          end },
     };
 
     local toggleButtons={};
