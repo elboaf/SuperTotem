@@ -152,6 +152,22 @@ local SHIELD_CHECK_INTERVAL = 1.0;
 -- outside Backpacker (keybind, macro, other addon). Totem drops are validated
 -- by SuperWoW GUID confirmation before the bar timer starts. Totemic Recall
 -- is gated on its fixed 6 second cooldown.
+local function PrintMessage(message)
+    if settings.DEBUG_MODE then
+        DEFAULT_CHAT_FRAME:AddMessage("SuperTotem: "..message);
+    end
+end
+
+local lastShieldMessageTime = 0;
+local SHIELD_MESSAGE_COOLDOWN = 1;
+local function PrintShieldMessage(msg)
+    local now = GetTime();
+    if now - lastShieldMessageTime >= SHIELD_MESSAGE_COOLDOWN then
+        lastShieldMessageTime = now;
+        DEFAULT_CHAT_FRAME:AddMessage("SuperTotem: "..msg);
+    end
+end
+
 local bpInternalCast = false;
 
 local function BPCast(spellName, onSelf)
@@ -261,6 +277,29 @@ local totemState = InitializeTotemState();
 
 local swFrame = CreateFrame("Frame")
 swFrame:RegisterEvent("UNIT_MODEL_CHANGED")
+
+-- Event snooper: registers all unit events and logs any that fire for our totem unitIds.
+-- Only active when DEBUG_MODE is on. Helps identify which events fire on totem death/destroy.
+local snoop = CreateFrame("Frame")
+local SNOOP_EVENTS = {
+    "UNIT_MODEL_CHANGED", "UNIT_HEALTH", "UNIT_DIED", "UNIT_DESTROYED",
+    "UNIT_FLAGS", "UNIT_DISPLAYPOWER", "UNIT_NAME_UPDATE",
+    "UNIT_PORTRAIT_UPDATE", "UNIT_ENTERED_VEHICLE", "UNIT_EXITED_VEHICLE",
+};
+for _, ev in ipairs(SNOOP_EVENTS) do snoop:RegisterEvent(ev) end
+snoop:SetScript("OnEvent", function()
+    if not settings.DEBUG_MODE then return end
+    if not superwowEnabled then return end
+    local unitId = arg1
+    if not unitId then return end
+    for i, totem in ipairs(totemState) do
+        if totem.unitId and totem.unitId == unitId then
+            DEFAULT_CHAT_FRAME:AddMessage(
+                "SuperTotem [snoop] "..event.." on "..unitId..
+                " ("..tostring(UnitName(unitId))..")", 1, 0.8, 0);
+        end
+    end
+end)
 swFrame:SetScript("OnEvent", function()
     if not superwowEnabled then return end
     local unitId = arg1
@@ -335,22 +374,6 @@ local function CheckTotemRange()
         DEFAULT_CHAT_FRAME:AddMessage("Totems: OUT OF RANGE - redropping", 1, 0.5, 0)
     end
     return outOfRange
-end
-
-local function PrintMessage(message)
-    if settings.DEBUG_MODE then
-        DEFAULT_CHAT_FRAME:AddMessage("SuperTotem: "..message);
-    end
-end
-
-local lastShieldMessageTime = 0;
-local SHIELD_MESSAGE_COOLDOWN = 1;
-local function PrintShieldMessage(msg)
-    local now = GetTime();
-    if now - lastShieldMessageTime >= SHIELD_MESSAGE_COOLDOWN then
-        lastShieldMessageTime = now;
-        DEFAULT_CHAT_FRAME:AddMessage("SuperTotem: "..msg);
-    end
 end
 
 local lastShieldSetMessageTime = 0;
