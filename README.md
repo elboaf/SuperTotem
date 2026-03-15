@@ -1,130 +1,196 @@
 # SuperTotem
 
-A Shaman totem and shield manager for Turtle WoW (vanilla 1.12). Designed for use with [SuperWoW](https://github.com/balakethelock/SuperWoW), which enables GUID-based totem tracking for reliable state detection. Falls back to buff-based detection without it.
+A totem and shield manager for Shaman on vanilla WoW 1.12 (interface 11200). Designed for use with [SuperWoW](https://github.com/balakethelock/SuperWoW), though it falls back to buff-based detection without it.
 
-## Features
-
-- **Totem bar GUI** — displays active totems with countdown timers, element-coloured icons, and a per-element totem selector flyout
-- **Auto-drop** — `/stbuff` drops all missing totems in sequence, one per call, respecting cast delay
-- **Strict mode** — when enabled, `/stbuff` replaces manually dropped totems with your configured loadout
-- **External cast detection** — tracks totems dropped via macros, keybinds, action bars, or spellbook clicks
-- **Anti-Poison / Anti-Disease modes** — recasts the cleansing totem on every `/stbuff` invocation to trigger the on-use dispel effect
-- **Auto Shield** — automatically casts your configured shield when it is not active
-- **Range checking** — detects when totems have moved out of range and flags them for re-drop (requires SuperWoW)
-- **Fire totem automation** — `/stfirebuff` handles fire totems separately with configurable range override
+---
 
 ## Requirements
 
-- Turtle WoW (1.12 client)
-- [SuperWoW](https://github.com/balakethelock/SuperWoW) — strongly recommended for GUID-based totem verification and range checking
+- Vanilla WoW 1.12 client
+- **SuperWoW** (strongly recommended) — enables GUID-based totem confirmation, position tracking, range checking, and instant destruction detection. Without it the addon falls back to buff polling, which cannot detect totems that don't apply a buff (e.g. Grounding, Fire Nova, Earthbind).
+
+---
 
 ## Installation
 
-1. Copy the `SuperTotem` folder into your `Interface/AddOns/` directory
-2. Reload or log in
+Place the `SuperTotem` folder in `Interface/AddOns/`. The folder must contain `SuperTotem.lua` and `SuperTotem.toc`.
 
-## GUI
+---
 
-The totem bar appears at the bottom of the screen and fades in on mouseover. It shows one icon per element (Air, Fire, Earth, Water) with a live countdown timer. Click an icon to open a flyout and select a different totem for that slot.
+## The Totem Bar
 
-The toggle buttons above the bar (left to right):
+Open and close the bar with `/stmenu`. The bar is hidden by default.
 
-| Button | Function |
-|--------|----------|
-| `*` | Strict mode — `/stbuff` replaces manual drops with your loadout |
-| `P` | Anti-Poison — spams Poison Cleansing Totem for on-use dispel |
-| `D` | Anti-Disease — spams Disease Cleansing Totem for on-use dispel |
-| `S` | Auto Shield — automatically casts your configured shield |
+**Moving the bar:** Hold Shift and drag any part of the bar.
 
-The range slider sets the totem re-drop distance threshold.
+### Main Icons
 
-## Core Commands
+Four totem slot icons are shown left to right: Water, Earth, Air, Fire.
+
+| Interaction | Action |
+|---|---|
+| Left-click | Cast the configured totem for that element |
+| Right-click | Cycle between the two quick-toggle totems for that element, or open the flyout if neither is selected |
+| Hover | Open the totem selection flyout |
+
+### Flyout Menu
+
+Hovering or right-clicking a main icon opens a flyout listing all available totems for that element plus a **none** option to disable that slot.
+
+- **Left-click** a totem to set it as the primary for that slot.
+- **Right-click** a totem to set it as the [fallback totem](#fallback-totems) — only available when the current primary is a cooldown totem (Grounding, Fire Nova, or Earthbind). Eligible totems show a hint in their tooltip.
+
+### Timer Display
+
+When a totem is active a countdown timer appears on its icon. Colour indicates remaining duration:
+
+- **White** — more than 50% remaining
+- **Orange** — under 50% remaining
+- **Red** — under 10 seconds
+
+If a totem that differs from the currently configured one is active (e.g. a fallback totem is running), it appears in a smaller icon below the main bar with its own timer. Clicking this icon recasts it manually.
+
+When a cooldown totem's primary is on cooldown, its icon shows the cooldown remaining in **grey**.
+
+### Settings Row
+
+A row of small toggle buttons appears below the main icons when the bar is hovered.
+
+| Button | Setting | Description |
+|---|---|---|
+| `*` | Strict mode | When on, manually dropped totems that differ from your configured selection will be replaced on the next `/stbuff`. When off, manual drops are left alone. |
+| `P` | Anti-Poison mode | Continuously re-drops Poison Cleansing Totem in the Water slot. Mutually exclusive with Anti-Disease mode. |
+| `D` | Anti-Disease mode | Continuously re-drops Disease Cleansing Totem in the Water slot. Mutually exclusive with Anti-Poison mode. |
+| `S` | Auto Shield | Automatically casts your configured shield when it falls off. Clicking opens a small flyout to choose Water, Lightning, or Earth Shield. |
+| `F` | Fallback totem | Enables or disables the fallback totem system. |
+
+### Range Slider
+
+A horizontal slider to the right of the toggle buttons sets the **global range threshold** (10–40 yards, default 30y). Totems beyond this distance from you will be flagged as out of range and re-dropped on the next `/stbuff`. Requires SuperWoW.
+
+A second **fire range slider** appears below when Searing Totem or Magma Totem is selected, allowing a separate shorter range override for those totems.
+
+---
+
+## Fallback Totems
+
+Grounding Totem, Fire Nova Totem, and Earthbind Totem all have cooldowns that exceed their active lifetime. When one of these is configured as your primary, the addon supports an automatic **fallback totem** that drops in its place while the primary is on cooldown.
+
+**How it works:**
+
+1. When you switch *to* a cooldown totem, the previous non-cooldown totem for that element is automatically saved as the fallback.
+2. You can also manually set the fallback via **right-click** in the flyout menu.
+3. While the primary is on cooldown, the fallback totem drops instead. Its icon and timer appear in the active totem slot below the main bar.
+4. Once the primary comes off cooldown it drops automatically on the next `/stbuff` and the fallback disappears.
+
+The fallback setting is visible as a small **corner badge icon** on the bottom-right of the relevant main totem icon. The badge is hidden when the fallback feature is disabled (`F` toggle).
+
+All fallback settings are saved between sessions.
+
+---
+
+## Slash Commands
+
+### Core
 
 | Command | Description |
-|---------|-------------|
-| `/stbuff` | Drop all missing totems |
-| `/stfirebuff` | Drop fire totem only |
-| `/st` or `/supertotem` | Show all commands |
-| `/stdebug` | Toggle verbose debug output |
+|---|---|
+| `/st` or `/supertotem` | Print usage help |
+| `/stmenu` | Toggle the totem bar |
+| `/stbuff` | Drop all configured totems (main macro to bind) |
+| `/stfirebuff` | Drop only the fire totem |
+| `/streport` | Report current totem status to party chat |
 
-## Totem Configuration
-
-**Earth**
-| Command | Totem |
-|---------|-------|
-| `/stsoe` | Strength of Earth |
-| `/stss` | Stoneskin |
-| `/sttremor` | Tremor |
-| `/ststoneclaw` | Stoneclaw |
-| `/stearthbind` | Earthbind |
-
-**Fire**
-| Command | Totem |
-|---------|-------|
-| `/stft` | Flametongue |
-| `/stfrr` | Frost Resistance |
-| `/stfirenova` | Fire Nova |
-| `/stsearing` | Searing |
-| `/stmagma` | Magma |
-
-**Air**
-| Command | Totem |
-|---------|-------|
-| `/stwf` | Windfury |
-| `/stgoa` | Grace of Air |
-| `/stnr` | Nature Resistance |
-| `/stgrounding` | Grounding |
-| `/stsentry` | Sentry |
-| `/stwindwall` | Windwall |
-| `/sttranquil` | Tranquil Air |
-
-**Water**
-| Command | Totem |
-|---------|-------|
-| `/stms` | Mana Spring |
-| `/sths` | Healing Stream |
-| `/stfr` | Fire Resistance |
-| `/stpoison` | Poison Cleansing |
-| `/stdisease` | Disease Cleansing |
-
-## Shield Configuration
-
-| Command | Shield |
-|---------|--------|
-| `/stws` | Water Shield |
-| `/stls` | Lightning Shield |
-| `/stes` | Earth Shield |
-
-## Mode Commands
+### Toggles
 
 | Command | Description |
-|---------|-------------|
-| `/stantipoison` | Toggle Anti-Poison mode |
-| `/stantidisease` | Toggle Anti-Disease mode |
-| `/sthybrid` | Toggle Hybrid mode (adjusted healing threshold) |
-| `/stauto` | Toggle Auto Shield |
+|---|---|
+| `/stdebug` | Toggle debug mode (verbose chat output) |
+| `/stf` | Toggle follow functionality |
+| `/stchainheal` | Toggle Chain Heal preference |
+| `/stantidisease` | Toggle Anti-Disease (Stratholme) mode |
+| `/stantipoison` | Toggle Anti-Poison (ZG) mode |
+| `/sthybrid` | Toggle Hybrid mode (melee assist + Chain Lightning) |
 | `/stpets` | Toggle pet healing |
-| `/stdelay <seconds>` | Set cast delay between totems |
+| `/stauto` | Toggle Auto Shield mode |
 
-## Utility
+### Shield Selection
+
+| Command | Aliases | Description |
+|---|---|---|
+| `/stwatershield` | `/stws` | Set Water Shield |
+| `/stlightningshield` | `/stls` | Set Lightning Shield |
+| `/stearthshield` | `/stes` | Set Earth Shield |
+
+### Totem Selection — Earth
+
+| Command | Totem |
+|---|---|
+| `/stsoe` | Strength of Earth Totem |
+| `/stss` | Stoneskin Totem |
+| `/sttremor` | Tremor Totem |
+| `/ststoneclaw` | Stoneclaw Totem |
+| `/stearthbind` | Earthbind Totem |
+
+### Totem Selection — Fire
+
+| Command | Totem |
+|---|---|
+| `/stft` | Flametongue Totem |
+| `/stfrr` | Frost Resistance Totem |
+| `/stfirenova` | Fire Nova Totem |
+| `/stsearing` | Searing Totem |
+| `/stmagma` | Magma Totem |
+
+### Totem Selection — Air
+
+| Command | Totem |
+|---|---|
+| `/stwf` | Windfury Totem |
+| `/stgoa` | Grace of Air Totem |
+| `/stnr` | Nature Resistance Totem |
+| `/stgrounding` | Grounding Totem |
+| `/stsentry` | Sentry Totem |
+| `/stwindwall` | Windwall Totem |
+| `/sttranquil` | Tranquil Air Totem |
+
+### Totem Selection — Water
+
+| Command | Totem |
+|---|---|
+| `/stms` | Mana Spring Totem |
+| `/sths` | Healing Stream Totem |
+| `/stfr` | Fire Resistance Totem |
+| `/stpoison` | Poison Cleansing Totem |
+| `/stdisease` | Disease Cleansing Totem |
+
+### Diagnostics
 
 | Command | Description |
-|---------|-------------|
-| `/streport` | Announce current totem loadout to party |
-| `/stmenu` | Open the totem bar GUI |
-| `/stchecksw` | Display SuperWoW detection status and totem GUIDs |
-| `/sttotempos` | Display current totem positions and distances |
-| `/stcheckbuffs` | List all active player buffs with spell IDs |
+|---|---|
+| `/stchecksw` | Check SuperWoW availability and version |
+| `/sttotempos` | Print current tracked totem positions |
+| `/stcheckbuffs` | Print active totem buff status |
+| `/stl [name]` | Set follow target by name |
+| `/stdelay [value]` | Set the cast delay between totem drops (seconds) |
 
-## Macro Tips
+---
 
-SuperTotem detects casts from macros automatically. You can combine a cast with a loadout switch in a single macro:
+## Supported Totems
 
-```
-/cast Magma Totem
-/stmagma
-```
+**Earth:** Strength of Earth, Stoneskin, Tremor, Stoneclaw, Earthbind
 
-The `/stmagma` call sets Magma Totem as your configured fire totem. Because strict mode checks happen at cast time, the manual cast and the config update are treated as the same intent — no redundant re-drop will occur.
+**Fire:** Flametongue, Frost Resistance, Fire Nova, Searing, Magma
 
-For Anti-Poison/Disease situations, simply enable the mode from the GUI or via `/stantipoison` and then use `/stbuff` normally — it will recast the cleansing totem each time to trigger the dispel.
+**Air:** Windfury, Grace of Air, Nature Resistance, Grounding, Sentry, Windwall, Tranquil Air
+
+**Water:** Mana Spring, Healing Stream, Fire Resistance, Poison Cleansing, Disease Cleansing
+
+---
+
+## Notes
+
+- Settings are saved per-character in `SuperTotemDB` via the WoW SavedVariables system.
+- The addon hooks `CastSpellByName`, `CastSpell`, and `UseAction` globally to detect totem casts made outside the addon (keybinds, macros, other addons).
+- With SuperWoW, totem destruction is detected via `UnitExists` polling (up to 2 second latency). The bar timer clears as soon as destruction is detected.
+- Totems with cooldowns (Grounding, Fire Nova, Earthbind) are skipped during drops if on cooldown, allowing the remaining elements to drop without waiting.
