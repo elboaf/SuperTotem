@@ -1564,20 +1564,7 @@ do
     barBg:SetAlpha(0);
     fadeControls[table.getn(fadeControls)+1] = barBg;
 
-    -- Resize the bar height depending on whether any active-totem row is visible
-    local function ResizeBar()
-        local anyActive = false;
-        for i = 1, table.getn(ELEMENTS) do
-            local bb = barButtons[ELEMENTS[i].key];
-            if bb and bb.activeBtn and bb.activeBtn:IsVisible() then
-                anyActive = true; break;
-            end
-        end
-        local newH = anyActive and (BAR_BTN_SIZE + ACTIVE_BTN_SIZE + HANDLE_H)
-                                 or (BAR_BTN_SIZE + HANDLE_H);
-        bar:SetHeight(newH);
-        barBg:SetHeight(newH);
-    end
+    local function ResizeBar() end -- bar height is fixed; active buttons extend below without layout changes
 
     local tickFrame = CreateFrame("Frame");
     tickFrame:SetScript("OnUpdate",function()
@@ -1712,7 +1699,7 @@ do
         activeBtn:SetScript("OnDragStart", function() if IsShiftKeyDown() then bar:StartMoving() end end);
         activeBtn:SetScript("OnDragStop", function() bar:StopMovingOrSizing() end);
         activeBtn:SetWidth(BAR_BTN_SIZE); activeBtn:SetHeight(BAR_BTN_SIZE);
-        activeBtn:SetPoint("TOP",mainBtn,"BOTTOM",0,-(BAR_BTN_SIZE - SLIDER_H - HANDLE_H));
+        activeBtn:SetPoint("TOP",mainBtn,"BOTTOM",0,0);
 
         local aSlot=activeBtn:CreateTexture(nil,"BACKGROUND");
         aSlot:SetTexture("Interface\\Buttons\\UI-EmptySlot"); aSlot:SetAllPoints(activeBtn);
@@ -2034,6 +2021,7 @@ do
     for i=1,table.getn(toggleDefs) do
         local def=toggleDefs[i];
         local btn=CreateFrame("Button",nil,bar);
+        btn:SetFrameStrata("HIGH");
         btn:RegisterForDrag("LeftButton");
         btn:SetScript("OnDragStart", function() if IsShiftKeyDown() then bar:StartMoving() end end);
         btn:SetScript("OnDragStop", function() bar:StopMovingOrSizing() end);
@@ -2141,6 +2129,7 @@ do
     local RANGE_STOPS  = { 10, 15, 20, 25, 30, 35, 40 };
 
     local rangeSlider=CreateFrame("Slider","ST_RangeSlider",bar);
+    rangeSlider:SetFrameStrata("HIGH");
     rangeSlider:SetOrientation("HORIZONTAL");
     rangeSlider:SetWidth(SLIDER_W); rangeSlider:SetHeight(SLIDER_H);
     rangeSlider:SetPoint("TOPLEFT",bar,"BOTTOMLEFT",toggleRowEnd,6);
@@ -2183,6 +2172,7 @@ do
     local fireRangeIniting = false;
 
     local fireRangeSlider=CreateFrame("Slider","BP_FireRangeSlider",bar);
+    fireRangeSlider:SetFrameStrata("HIGH");
     fireRangeSlider:SetOrientation("HORIZONTAL");
     fireRangeSlider:SetWidth(SLIDER_W); fireRangeSlider:SetHeight(SLIDER_H);
     fireRangeSlider:SetPoint("TOPLEFT",rangeSlider,"BOTTOMLEFT",0,6);
