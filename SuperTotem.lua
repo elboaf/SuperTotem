@@ -1057,18 +1057,28 @@ end
 
 local function ReportTotemsToParty()
     local function Fmt(s)
-        if not s or type(s)~="string" then return "Unknown" end
+        if not s or type(s)~="string" then return nil end
         if string.find(s," Totem$") then return string.sub(s,1,-7) end
         return s
     end
-    local air   = settings.AIR_TOTEM   or "Windfury Totem"
-    local earth = settings.EARTH_TOTEM or "Strength of Earth Totem"
-    local fire  = settings.FIRE_TOTEM  or "Flametongue Totem"
-    local water = settings.WATER_TOTEM or "Mana Spring Totem"
-    if settings.STRATHOLME_MODE then water="Disease Cleansing Totem"
-    elseif settings.ZG_MODE then     water="Poison Cleansing Totem" end
-    local list = { Fmt(air), Fmt(fire), Fmt(earth), Fmt(water) }
-    local msg = "Current Totems: "..table.concat(list,", ")
+    local slots = {
+        { "Air",   settings.AIR_TOTEM   },
+        { "Fire",  settings.FIRE_TOTEM  },
+        { "Earth", settings.EARTH_TOTEM },
+        { "Water", settings.STRATHOLME_MODE and "Disease Cleansing Totem"
+                   or settings.ZG_MODE       and "Poison Cleansing Totem"
+                   or settings.WATER_TOTEM   },
+    }
+    local list = {}
+    for i=1,table.getn(slots) do
+        local name = Fmt(slots[i][2])
+        if name then list[table.getn(list)+1] = name end
+    end
+    if table.getn(list) == 0 then
+        DEFAULT_CHAT_FRAME:AddMessage("SuperTotem: No totems configured.")
+        return
+    end
+    local msg = "Totems: "..table.concat(list,", ")
     SendChatMessage(msg,"PARTY")
     DEFAULT_CHAT_FRAME:AddMessage("SuperTotem: "..msg)
 end
