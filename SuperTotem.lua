@@ -37,6 +37,7 @@ local COOLDOWN_TOTEM_CD = {
     ["Grounding Totem"]  = 15,
     ["Fire Nova Totem"]  = 15,
     ["Earthbind Totem"]  = 20,
+    ["Stoneclaw Totem"]  = 30,
 };
 
 local SPELL_ID_LOOKUP = {
@@ -1828,20 +1829,38 @@ do
         noneLabel:SetTextColor(0.55, 0.55, 0.55, 1);
         noneLabel:SetText("none");
         noneBtn.totemName = nil; noneBtn.elementKey = elementKey;
+        noneBtn:RegisterForClicks("LeftButtonUp","RightButtonUp");
         noneBtn:SetScript("OnClick", function()
-            ApplyTotemSelection(elementKey, nil);
-            barButtons[elementKey].icon:SetTexture(NONE_ICON);
-            barButtons[elementKey].icon:SetVertexColor(0.35, 0.35, 0.35, 1);
-            for i=1,table.getn(flyBtns) do flyBtns[i]:SetChecked(nil) end
-            noneBtn:SetChecked(1);
-            if elementKey=="Fire" and ST_TotemBar_RefreshFireSlider then ST_TotemBar_RefreshFireSlider() end
-            CloseFlyout(elementKey); tt:Hide();
+            if arg1 == "RightButton" then
+                local primary = GetCurrentTotem(dbKey);
+                if primary and COOLDOWN_TOTEM_CD[primary] then
+                    SetFallbackTotem(elementKey, nil);
+                    for i=1,table.getn(flyBtns) do flyBtns[i]:SetChecked(nil) end
+                    noneBtn:SetChecked(1);
+                    tt:ClearLines(); tt:SetOwner(noneBtn,"ANCHOR_RIGHT");
+                    tt:AddLine("Fallback disabled for "..elementKey,0.4,1,0.4); tt:Show();
+                end
+            else
+                ApplyTotemSelection(elementKey, nil);
+                barButtons[elementKey].icon:SetTexture(NONE_ICON);
+                barButtons[elementKey].icon:SetVertexColor(0.35, 0.35, 0.35, 1);
+                for i=1,table.getn(flyBtns) do flyBtns[i]:SetChecked(nil) end
+                noneBtn:SetChecked(1);
+                if elementKey=="Fire" and ST_TotemBar_RefreshFireSlider then ST_TotemBar_RefreshFireSlider() end
+                CloseFlyout(elementKey); tt:Hide();
+            end
         end);
         noneBtn:SetScript("OnEnter", function()
             CancelClose(elementKey);
             tt:ClearLines(); tt:SetOwner(noneBtn, "ANCHOR_RIGHT");
             tt:AddLine("None", 1, 1, 1);
-            tt:AddLine("Skip this element — no totem will be dropped.", 0.8, 0.8, 0.8);
+            local primary = GetCurrentTotem(dbKey);
+            if primary and COOLDOWN_TOTEM_CD[primary] then
+                tt:AddLine("Left-click: disable this element", 0.8, 0.8, 0.8);
+                tt:AddLine("Right-click: disable fallback totem", 0.6, 1, 0.6);
+            else
+                tt:AddLine("Skip this element — no totem will be dropped.", 0.8, 0.8, 0.8);
+            end
             tt:Show();
         end);
         noneBtn:SetScript("OnLeave", function() tt:Hide(); ScheduleClose(elementKey) end);
@@ -1857,6 +1876,10 @@ do
             local cur=GetCurrentTotem(dbKey);
             local showFallback = cur and COOLDOWN_TOTEM_CD[cur];
             local fb = showFallback and fbSettingKey and settings[fbSettingKey];
+            -- fb is nil either because no fallback key exists, or because it was explicitly
+            -- set to none. Check the DB directly to distinguish the two cases.
+            local fbExplicitNone = showFallback and fbSettingKey
+                and SuperTotemDB[fbSettingKey] == "none";
             for i=1,table.getn(flyBtns) do
                 local b=flyBtns[i]; b.icon:SetTexture(b.totemPath);
                 if showFallback then
@@ -1865,7 +1888,11 @@ do
                     b:SetChecked(cur and b.totemName==cur and 1 or nil)
                 end
             end
-            noneBtn:SetChecked(not cur and 1 or nil);
+            if showFallback then
+                noneBtn:SetChecked(fbExplicitNone and 1 or nil);
+            else
+                noneBtn:SetChecked(not cur and 1 or nil);
+            end
         end);
 
         -- HOVER open
