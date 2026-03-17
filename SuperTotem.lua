@@ -28,7 +28,7 @@ local settings = {
     EARTH_TOTEM_FB = nil,
     FIRE_TOTEM_FB  = nil,
     AIR_TOTEM_FB   = nil,
-    FALLBACK_ENABLED = true,
+    FALLBACK_ENABLED = true, -- kept for SavedVariables backward compat, no longer used
 };
 
 -- Totems that have a cooldown exceeding their lifetime.
@@ -458,9 +458,19 @@ local function DropTotems()
     if currentTime - lastTotemCastTime < TOTEM_CAST_DELAY then return end
 
     local function IsOnCooldown(spellName)
-        local start, duration = GetSpellCooldown(spellName);
-        if not start or not duration then return false end
-        return duration > 0 and (start + duration) > currentTime;
+        if not spellName then return false end
+        local i = 1;
+        while true do
+            local n = GetSpellName(i, BOOKTYPE_SPELL);
+            if not n then break end
+            if n == spellName then
+                local start, duration = GetSpellCooldown(i, BOOKTYPE_SPELL);
+                if not start or not duration then return false end
+                return duration > 0 and (start + duration) > currentTime;
+            end
+            i = i + 1;
+        end
+        return false;
     end
 
     local function GetFallback(element)
@@ -484,32 +494,36 @@ local function DropTotems()
             else                             configuredSpell = settings.WATER_TOTEM end
         end
 
-        -- In strict mode, a verified totem that isn't the configured spell gets
-        -- reset so PHASE 2 recasts it. Exception: if the slot is running the
-        -- fallback because the primary is on cooldown, leave it alone.
+        -- If the slot is verified but running a different spell than configured:
+        -- - If it's the fallback and primary is still on cooldown: leave it alone in
+        --   both strict and non-strict mode (fallback is doing its job).
+        -- - Otherwise: in strict mode reset only if something can actually be cast
+        --   (primary ready, or fallback ready). If nothing is ready, leave the slot
+        --   alone to avoid clearing the active icon for a totem that still exists.
+        -- - Non-strict + fallback completed: reset so primary gets dropped.
+        -- - Non-strict + genuinely manual drop: leave as-is.
         if totem.locallyVerified and totem.spell ~= configuredSpell then
-            local fb = settings.FALLBACK_ENABLED and GetFallback(totem.element);
-            local runningFallback = fb and totem.spell == fb and configuredSpell and IsOnCooldown(configuredSpell);
-            if settings.STRICT_MODE and not runningFallback then
-                PrintMessage("Strict mode: replacing "..tostring(totem.spell).." with "..tostring(configuredSpell));
-                totemState[i].locallyVerified = false;
-                totemState[i].serverVerified  = false;
-                totemState[i].localVerifyTime = 0;
-                totemState[i].unitId          = nil;
-                totemPositions[totem.element] = nil;
-                totemState[i].spell = configuredSpell;
-                totemState[i].buff  = configuredSpell and TOTEM_DEFINITIONS[configuredSpell] and TOTEM_DEFINITIONS[configuredSpell].buff;
+            local fb = GetFallback(totem.element);
+            local primaryOnCD = configuredSpell and IsOnCooldown(configuredSpell);
+            local runningFallback = fb and totem.spell == fb and primaryOnCD;
+            local canReplace = not primaryOnCD or (fb and not IsOnCooldown(fb));
+            if not runningFallback then
+                if (settings.STRICT_MODE and canReplace) or (fb and totem.spell == fb and not primaryOnCD) then
+                    totemState[i].locallyVerified = false;
+                    totemState[i].serverVerified  = false;
+                    totemState[i].localVerifyTime = 0;
+                    totemState[i].unitId          = nil;
+                    totemPositions[totem.element] = nil;
+                    totemState[i].spell = configuredSpell;
+                    totemState[i].buff  = configuredSpell and TOTEM_DEFINITIONS[configuredSpell] and TOTEM_DEFINITIONS[configuredSpell].buff;
+                end
+                -- Strict + nothing ready, or non-strict + genuine manual: leave as-is.
             end
-            -- non-strict: leave totem.spell as-is, PHASE 2 will skip it (locallyVerified=true)
         elseif not totem.locallyVerified then
-            -- Slot is empty/unverified - update to configured spell unless the primary
-            -- is on cooldown and we'll be dropping the fallback instead.
-            local fb = settings.FALLBACK_ENABLED and GetFallback(totem.element);
-            local willUseFallback = fb and configuredSpell and IsOnCooldown(configuredSpell);
-            if not willUseFallback then
-                totemState[i].spell = configuredSpell;
-                totemState[i].buff  = configuredSpell and TOTEM_DEFINITIONS[configuredSpell] and TOTEM_DEFINITIONS[configuredSpell].buff;
-            end
+            -- Always reset spell to the primary so PHASE 2 checks the right cooldown.
+            -- The fallback cast path in PHASE 2 will override this if needed.
+            totemState[i].spell = configuredSpell;
+            totemState[i].buff  = configuredSpell and TOTEM_DEFINITIONS[configuredSpell] and TOTEM_DEFINITIONS[configuredSpell].buff;
         end
     end
 
@@ -562,11 +576,6 @@ local function DropTotems()
                         hadExpiredTotems = true;
                     end
                 end
-            elseif totem.locallyVerified and not totem.unitId then
-                PrintMessage(totem.element.." locallyVerified but no unitId - resetting");
-                totemState[i].serverVerified = false; totemState[i].locallyVerified = false;
-                totemPositions[totem.element] = nil;
-                hadExpiredTotems = true;
             end
         end
     else
@@ -608,7 +617,7 @@ local function DropTotems()
                 totemState[i].locallyVerified = true; totemState[i].serverVerified = true;
                 PrintMessage("Skipping "..totem.element.." totem (disabled)");
             elseif IsOnCooldown(totem.spell) then
-                local fb = settings.FALLBACK_ENABLED and GetFallback(totem.element);
+                local fb = GetFallback(totem.element);
                 if fb and not IsOnCooldown(fb) then
                     -- Primary is on cooldown; drop fallback instead
                     BPCast(fb);
@@ -1265,6 +1274,7 @@ OnExternalTotemCast = function(spellName)
     local def = TOTEM_DEFINITIONS[spellName];
     if not def then return end
     local currentTime = GetTime();
+
     for i, totem in ipairs(totemState) do
         if totem.element == def.element then
             -- If already server-verified with the same spell, this is likely a spam
@@ -1610,12 +1620,20 @@ do
             -- cooldown on the main icon in grey so the player knows when it's ready again.
             local function ShowCooldownOnMain()
                 if not setTotem or not COOLDOWN_TOTEM_CD[setTotem] then return false end
-                local start, duration = GetSpellCooldown(setTotem);
-                if not start or not duration or duration == 0 then return false end
-                local rem = (start + duration) - now;
-                if rem <= 0 then return false end
-                SetTD(bb.timer, bb.timerLayers, FT(rem), 0.55, 0.55, 0.55);
-                return true;
+                local si = 1;
+                while true do
+                    local sn = GetSpellName(si, BOOKTYPE_SPELL); if not sn then break end
+                    if sn == setTotem then
+                        local start, duration = GetSpellCooldown(si, BOOKTYPE_SPELL);
+                        if not start or not duration or duration == 0 then return false end
+                        local rem = (start + duration) - now;
+                        if rem <= 0 then return false end
+                        SetTD(bb.timer, bb.timerLayers, FT(rem), 0.55, 0.55, 0.55);
+                        return true;
+                    end
+                    si = si + 1;
+                end
+                return false;
             end
 
             if ts then
@@ -2004,7 +2022,7 @@ do
             if bb and bb.fbBadge then
                 local fbKey = FB_DBKEYS[el.key];
                 local fb = fbKey and settings[fbKey];
-                if fb and settings.FALLBACK_ENABLED then
+                if fb then
                     bb.fbBadge:SetTexture(TOTEM_ICONS[fb] or FALLBACK_ICON);
                     bb.fbBadge:Show();
                 else
@@ -2036,11 +2054,6 @@ do
           end },
         { key="AS", label="S", tip="Automatic shield cast",     setting="AUTO_SHIELD_MODE",
           onToggle=function() end },
-        { key="FB", label="F", tip=function() return settings.FALLBACK_ENABLED and "Fallback totem enabled" or "Fallback totem disabled" end, setting="FALLBACK_ENABLED",
-          onToggle=function()
-              ToggleSetting("FALLBACK_ENABLED","Fallback totem");
-              if ST_TotemBar_RefreshFallbackBadges then ST_TotemBar_RefreshFallbackBadges() end
-          end },
     };
 
     local toggleButtons={};
