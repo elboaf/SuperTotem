@@ -4,6 +4,21 @@ A totem and shield manager for Shaman on vanilla WoW 1.12 (interface 11200). Des
 
 ---
 
+## Changelog
+
+### v1.0.4.4
+- **Weapon imbue tracking** — A 5th icon appears on the totem bar showing your current mainhand weapon imbue. The icon accurately reflects whatever imbue is applied to your weapon at all times, including pre-enchanted weapons you equip mid-session. Hover to open a flyout for manual selection; left-click to recast the configured imbue.
+- **Auto weapon imbue** — New `W` toggle in the settings row. When enabled, the addon automatically reapplies your configured imbue when it expires (same pattern as auto shield). The configured imbue is selected via a flyout on the `W` toggle.
+- **Missing imbue glow** — When auto imbue is enabled and no imbue is detected on your mainhand, the imbue icon displays an animated glow (via DoiteGlow) matching the visual style used by ShamanWeaponEnchant.
+- **Tick bar** — Periodic totems (Tremor, Earthbind, Magma, Healing Stream, Mana Spring, Poison Cleansing, Disease Cleansing, Stoneclaw) now show a thin sweep bar at the bottom of their icon indicating time until the next pulse.
+- **Spellbook index cache** (`BuildSpellIndex`) — The spellbook is now scanned once at load and on `SPELLS_CHANGED`, building O(1) lookup tables for all totem and imbue spells. Eliminates repeated per-frame and per-cast spellbook scans from `IsOnCooldown`, `ShowCooldownOnMain`, `GetTotemDuration`, and `ShowSpellTip`.
+- **Pending cast queue** (`pendingCastByElement`) — Totem spawn detection now uses an element-keyed pending cast table written at every `BPCast` and `OnExternalTotemCast` site. `UNIT_MODEL_CHANGED` matches the spawning unit against the pending entry rather than scanning for any unverified slot, eliminating ambiguous matches when two totems spawn close together.
+- **Weapon imbue identification** — Imbue spells are identified by icon texture rather than spell name, making detection server-name-agnostic (`"Windfury 4"`, `"Windfury Weapon"`, etc. all resolve correctly). `GetWeaponEnchantInfo("player")` is used for live icon updates; a pre-seeded ranked-name map covers all known server variants.
+- **DoiteGlow bundled** — `libs/DoiteGlow.lua` is now shipped with SuperTotem. Place `IconAlert.tga` and `IconAlertAnts.tga` in the `Textures/` folder.
+- **`GetSpellDuration` removed** — On some server builds this API returns remaining buff time rather than base spell duration, causing wildly incorrect timer values. Duration is now sourced entirely from the internal `TOTEM_DURATIONS` table, consistent with SNS.
+
+---
+
 ## Requirements
 
 - Vanilla WoW 1.12 client
@@ -13,7 +28,18 @@ A totem and shield manager for Shaman on vanilla WoW 1.12 (interface 11200). Des
 
 ## Installation
 
-Place the `SuperTotem` folder in `Interface/AddOns/`. The folder must contain `SuperTotem.lua` and `SuperTotem.toc`.
+Place the `SuperTotem` folder in `Interface/AddOns/`. The folder structure should be:
+
+```
+SuperTotem/
+  SuperTotem.toc
+  SuperTotem.lua
+  libs/
+    DoiteGlow.lua
+  Textures/
+    IconAlert.tga
+    IconAlertAnts.tga
+```
 
 ---
 
@@ -25,13 +51,22 @@ Open and close the bar with `/stmenu`. The bar is hidden by default.
 
 ### Main Icons
 
-Four totem slot icons are shown left to right: Water, Earth, Air, Fire.
+Four totem slot icons are shown left to right: Water, Earth, Air, Fire. A fifth icon to the right displays your current mainhand weapon imbue.
 
 | Interaction | Action |
 |---|---|
 | Left-click | Cast the configured totem for that element |
 | Right-click | Cycle between the two quick-toggle totems for that element, or open the flyout if neither is selected |
 | Hover | Open the totem selection flyout |
+
+### Weapon Imbue Icon
+
+| Interaction | Action |
+|---|---|
+| Left-click | Recast the configured imbue |
+| Hover | Open the imbue selection flyout and show spell tooltip |
+
+The icon always reflects the imbue actually applied to your mainhand weapon, updated every 0.5 seconds. If auto imbue is enabled and no imbue is detected, an animated glow indicates the missing enchant.
 
 ### Flyout Menu
 
@@ -52,6 +87,8 @@ If a totem that differs from the currently configured one is active (e.g. a fall
 
 When a cooldown totem's primary is on cooldown, its icon shows the cooldown remaining in **grey**.
 
+Periodic totems show a thin sweep bar at the bottom of their icon that fills left to right once per pulse interval.
+
 ### Settings Row
 
 A row of small toggle buttons appears below the main icons when the bar is hovered.
@@ -62,7 +99,7 @@ A row of small toggle buttons appears below the main icons when the bar is hover
 | `P` | Anti-Poison mode | Continuously re-drops Poison Cleansing Totem in the Water slot. Mutually exclusive with Anti-Disease mode. |
 | `D` | Anti-Disease mode | Continuously re-drops Disease Cleansing Totem in the Water slot. Mutually exclusive with Anti-Poison mode. |
 | `S` | Auto Shield | Automatically casts your configured shield when it falls off. Clicking opens a small flyout to choose Water, Lightning, or Earth Shield. |
-| `F` | Fallback totem | Enables or disables the fallback totem system. |
+| `W` | Auto Weapon Imbue | Automatically reapplies your configured imbue when it expires. Clicking opens a flyout to choose the imbue type. |
 
 ### Range Slider
 
@@ -83,7 +120,7 @@ Grounding Totem, Fire Nova Totem, and Earthbind Totem all have cooldowns that ei
 3. While the primary is on cooldown, the fallback totem drops instead. Its icon and timer appear in the active totem slot below the main bar.
 4. Once the primary comes off cooldown it drops automatically on the next `/stbuff` and the fallback disappears.
 
-The fallback setting is visible as a small **corner badge icon** on the bottom-right of the relevant main totem icon. The badge is hidden when the fallback feature is disabled (`F` toggle).
+The fallback setting is visible as a small **corner badge icon** on the bottom-right of the relevant main totem icon.
 
 All fallback settings are saved between sessions.
 
@@ -191,6 +228,6 @@ All fallback settings are saved between sessions.
 ## Notes
 
 - Settings are saved per-character in `SuperTotemDB` via the WoW SavedVariables system.
-- The addon hooks `CastSpellByName`, `CastSpell`, and `UseAction` globally to detect totem casts made outside the addon (keybinds, macros, other addons).
+- The addon hooks `CastSpellByName`, `CastSpell`, and `UseAction` globally to detect totem and imbue casts made outside the addon (keybinds, macros, other addons).
 - With SuperWoW, totem destruction is detected via `UnitExists` polling (up to 2 second latency). The bar timer clears as soon as destruction is detected.
 - Totems with cooldowns (Grounding, Fire Nova, Earthbind) are skipped during drops if on cooldown, allowing the remaining elements to drop without waiting.
