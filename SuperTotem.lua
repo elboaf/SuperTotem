@@ -18,6 +18,8 @@ local settings = {
     AUTO_SHIELD_MODE = false,
     SHIELD_TYPE = "Water Shield",
     STRICT_MODE = true,
+    AUTO_IMBUE_MODE = false,
+    IMBUE_TYPE = "Rockbiter Weapon",
     EARTH_TOTEM = "Strength of Earth Totem",
     FIRE_TOTEM = "Flametongue Totem",
     AIR_TOTEM = "Windfury Totem",
@@ -116,6 +118,118 @@ local TOTEM_DEFINITIONS = {
     ["Disease Cleansing Totem"] = { buff=nil,                  element="water" },
 };
 
+-- Spellbook index cache: built at VARIABLES_LOADED and on SPELLS_CHANGED.
+-- spellIdToTotem[bookIndex]   = canonical totem name (for CastSpell hook)
+-- spellNameToIndex[totemName] = book index           (for cooldown/duration lookups)
+-- "Totemic Recall" is also indexed in spellNameToIndex for UseAction support.
+local spellIdToTotem   = {};
+local spellNameToIndex = {};
+
+-- Weapon imbue spells: canonical name -> icon path.
+-- Populated from the spellbook at VARIABLES_LOADED; only trained spells appear.
+local WEAPON_IMBUE_DEFS = {
+    ["Rockbiter Weapon"]   = "Interface\\Icons\\Spell_Nature_RockBiter",
+    ["Windfury Weapon"]    = "Interface\\Icons\\Spell_Nature_Cyclone",
+    ["Flametongue Weapon"] = "Interface\\Icons\\Spell_Nature_GuardianWard",
+    ["Frostbrand Weapon"]  = "Interface\\Icons\\Spell_FrostResistanceTotem_01",
+    ["Earthliving Weapon"] = "Interface\\Icons\\Spell_Shaman_EarthlivingWeapon",
+};
+
+-- Reverse map: lowercase icon path -> canonical name (for spellbook texture matching)
+local WEAPON_IMBUE_TEXTURE_TO_NAME = {};
+for name, icon in pairs(WEAPON_IMBUE_DEFS) do
+    WEAPON_IMBUE_TEXTURE_TO_NAME[string.lower(icon)] = name;
+end
+
+local weaponImbueNameToIndex = {};
+
+-- Maps whatever GetWeaponEnchantInfo("player") returns -> canonical name + icon.
+-- Seeded with known server names; BuildSpellIndex adds spellbook names on top.
+local serverImbueNameToCanonical = {
+    -- Canonical names
+    ["Rockbiter Weapon"]   = "Rockbiter Weapon",
+    ["Windfury Weapon"]    = "Windfury Weapon",
+    ["Flametongue Weapon"] = "Flametongue Weapon",
+    ["Frostbrand Weapon"]  = "Frostbrand Weapon",
+    ["Earthliving Weapon"] = "Earthliving Weapon",
+    -- Server ranked names (from ShamanWeaponEnchant.lua reference)
+    ["Rockbiter 1"]  = "Rockbiter Weapon",
+    ["Rockbiter 2"]  = "Rockbiter Weapon",
+    ["Rockbiter 3"]  = "Rockbiter Weapon",
+    ["Rockbiter 4"]  = "Rockbiter Weapon",
+    ["Rockbiter 5"]  = "Rockbiter Weapon",
+    ["Rockbiter 6"]  = "Rockbiter Weapon",
+    ["Rockbiter 7"]  = "Rockbiter Weapon",
+    ["Rockbiter 8"]  = "Rockbiter Weapon",
+    ["Windfury 1"]   = "Windfury Weapon",
+    ["Windfury 2"]   = "Windfury Weapon",
+    ["Windfury 3"]   = "Windfury Weapon",
+    ["Windfury 4"]   = "Windfury Weapon",
+    ["Windfury 5"]   = "Windfury Weapon",
+    ["Flametongue 1"] = "Flametongue Weapon",
+    ["Flametongue 2"] = "Flametongue Weapon",
+    ["Flametongue 3"] = "Flametongue Weapon",
+    ["Flametongue 4"] = "Flametongue Weapon",
+    ["Flametongue 5"] = "Flametongue Weapon",
+    ["Flametongue 6"] = "Flametongue Weapon",
+    ["Frostbrand 1"] = "Frostbrand Weapon",
+    ["Frostbrand 2"] = "Frostbrand Weapon",
+    ["Frostbrand 3"] = "Frostbrand Weapon",
+    ["Frostbrand 4"] = "Frostbrand Weapon",
+    ["Frostbrand 5"] = "Frostbrand Weapon",
+    ["Earthliving 1"] = "Earthliving Weapon",
+    ["Earthliving 2"] = "Earthliving Weapon",
+    ["Earthliving 3"] = "Earthliving Weapon",
+    ["Earthliving 4"] = "Earthliving Weapon",
+    ["Earthliving 5"] = "Earthliving Weapon",
+};
+
+local function BuildSpellIndex()
+    spellIdToTotem         = {};
+    spellNameToIndex       = {};
+    weaponImbueNameToIndex = {};
+    -- Don't wipe serverImbueNameToCanonical — it's pre-seeded with known server names.
+    -- Just add any spellbook names we find on top.
+    local i = 1;
+    while true do
+        local n = GetSpellName(i, BOOKTYPE_SPELL);
+        if not n then break end
+
+        local tex = GetSpellTexture(i, BOOKTYPE_SPELL);
+        if tex then
+            local canonical = WEAPON_IMBUE_TEXTURE_TO_NAME[string.lower(tex)];
+            if canonical then
+                weaponImbueNameToIndex[canonical] = i;
+                serverImbueNameToCanonical[n] = canonical; -- adds spellbook name e.g. "Windfury 4"
+            end
+        end
+
+        -- Exact match first
+        if TOTEM_DEFINITIONS[n] then
+            spellIdToTotem[i]   = n;
+            spellNameToIndex[n] = i;
+        elseif n == "Totemic Recall" then
+            spellNameToIndex["Totemic Recall"] = i;
+        else
+            -- Fuzzy: handles rank suffixes and minor whitespace differences.
+            local lowerN = string.lower(n);
+            for k in pairs(TOTEM_DEFINITIONS) do
+                if not spellNameToIndex[k] then
+                    local lowerK = string.lower(k);
+                    if lowerK == lowerN or
+                       string.find(lowerN, lowerK, 1, true) == 1 or
+                       string.find(lowerK, lowerN, 1, true) == 1 then
+                        spellIdToTotem[i]   = k;
+                        spellNameToIndex[k] = i;
+                        break;
+                    end
+                end
+            end
+        end
+        i = i + 1;
+    end
+end
+
 -- Reverse lookup: texture path (lowercase) -> totem name
 -- Used by the UseAction hook since vanilla has no GetActionType/GetActionInfo
 local TOTEM_TEXTURE_TO_NAME = {
@@ -194,6 +308,10 @@ end
 local OnExternalTotemCast;
 local OnExternalTotemicRecall;
 
+-- Tracks the imbue spell most recently cast (internal or external).
+-- Updated by all cast hooks so the imbue icon always reflects what's on the weapon.
+local activeImbueSpell = nil;
+
 local function HandleExternalSpellName(spellName)
     if not spellName then return end
     local cleanName = string.gsub(spellName, "%(.+%)", "");
@@ -248,8 +366,21 @@ end
 local _origCastSpell = CastSpell;
 CastSpell = function(spellId, spellbookTabNum)
     if not bpInternalCast and spellbookTabNum == BOOKTYPE_SPELL then
-        local spellName = GetSpellName(spellId, BOOKTYPE_SPELL);
-        HandleExternalSpellName(spellName);
+        local canonical = spellIdToTotem[spellId];
+        if canonical then
+            OnExternalTotemCast(canonical);
+        elseif spellNameToIndex["Totemic Recall"] == spellId then
+            OnExternalTotemicRecall();
+        else
+            -- Check weapon imbues by texture (server name is unreliable)
+            local tex = GetSpellTexture(spellId, BOOKTYPE_SPELL);
+            if tex then
+                local imbueCanonical = WEAPON_IMBUE_TEXTURE_TO_NAME[string.lower(tex)];
+                if imbueCanonical then
+                    activeImbueSpell = imbueCanonical;
+                end
+            end
+        end
     end
     _origCastSpell(spellId, spellbookTabNum);
 end
@@ -261,15 +392,22 @@ UseAction = function(slotId, checkCursor, onSelf)
     if not bpInternalCast then
         local texture = GetActionTexture(slotId);
         if texture then
-            local spellName = TOTEM_TEXTURE_TO_NAME[string.lower(texture)];
-            if spellName then
-                if settings.DEBUG_MODE then
-                    PrintMessage("External totem attempt (UseAction): ");
-                end
-                if spellName == "Totemic Recall" then
-                    OnExternalTotemicRecall();
-                else
-                    OnExternalTotemCast(spellName);
+            local lowerTex = string.lower(texture);
+            -- Check weapon imbues first (texture-based, server-name-independent)
+            local imbueCanonical = WEAPON_IMBUE_TEXTURE_TO_NAME[lowerTex];
+            if imbueCanonical then
+                activeImbueSpell = imbueCanonical;
+            else
+                local spellName = TOTEM_TEXTURE_TO_NAME[lowerTex];
+                if spellName then
+                    if settings.DEBUG_MODE then
+                        PrintMessage("External totem attempt (UseAction): ");
+                    end
+                    if spellName == "Totemic Recall" then
+                        OnExternalTotemicRecall();
+                    else
+                        OnExternalTotemCast(spellName);
+                    end
                 end
             end
         end
@@ -287,6 +425,12 @@ local function InitializeTotemState()
 end
 
 local totemState = InitializeTotemState();
+
+-- Pending cast queue (one slot per element): written when a totem spell is cast
+-- (internal or external), read by UNIT_MODEL_CHANGED to match the spawning unit
+-- to the right totemState slot without relying on name substring matching alone.
+-- Cleared when the unit is confirmed or the slot times out via PHASE 3.
+local pendingCastByElement = {}; -- element (lowercase) -> { spell=..., castTime=... }
 
 local swFrame = CreateFrame("Frame")
 swFrame:RegisterEvent("UNIT_MODEL_CHANGED")
@@ -319,29 +463,69 @@ swFrame:SetScript("OnEvent", function()
     if not unitId then return end
     local unitName = UnitName(unitId)
     if not unitName then return end
-    if string.find(unitName, "Totem") and UnitName(unitId.."owner") == UnitName("player") then
-        if settings.DEBUG_MODE then
-            DEFAULT_CHAT_FRAME:AddMessage("SuperTotem: SuperWoW detected our totem: "..unitName, 0,1,0)
+    if not (string.find(unitName, "Totem") and UnitName(unitId.."owner") == UnitName("player")) then return end
+
+    if settings.DEBUG_MODE then
+        DEFAULT_CHAT_FRAME:AddMessage("SuperTotem: SuperWoW detected our totem: "..unitName, 0,1,0)
+    end
+
+    local tx, ty = UnitPosition(unitId)
+
+    -- Determine which element this totem belongs to by checking pendingCastByElement
+    -- first (precise: matches the spell we just cast), then falling back to name scan.
+    local matchedElement = nil;
+    local matchedSpell   = nil;
+
+    -- Primary: find the pending entry whose spell name appears in the unit name
+    for el, pending in pairs(pendingCastByElement) do
+        if pending.spell and string.find(unitName, pending.spell, 1, true) then
+            matchedElement = el;
+            matchedSpell   = pending.spell;
+            break;
         end
-        local tx, ty = UnitPosition(unitId)
+    end
+
+    -- Fallback: scan totemState for any locally-verified-but-not-server-verified slot
+    -- whose expected spell matches (original behaviour, catches external casts that
+    -- arrived before UNIT_MODEL_CHANGED and have no pendingCastByElement entry).
+    if not matchedElement then
         for i, totem in ipairs(totemState) do
             if totem.locallyVerified and not totem.serverVerified then
-                local expectedName = totem.spell
+                local expectedName = totem.spell;
                 if expectedName and string.find(unitName, expectedName, 1, true) then
-                    totemState[i].serverVerified = true
-                    totemState[i].unitId = unitId
-                    if tx and ty then totemPositions[totem.element] = { x=tx, y=ty } end
-                    if ST_TotemBar_StartTimer then
-                        local elCap = string.upper(string.sub(totem.element,1,1))..string.sub(totem.element,2);
-                        ST_TotemBar_StartTimer(elCap, totem.spell);
-                    end
-                    if ST_TotemBar_RefreshIcons then ST_TotemBar_RefreshIcons() end
-                    if settings.DEBUG_MODE then
-                        DEFAULT_CHAT_FRAME:AddMessage("SuperTotem: Matched "..totem.element.." totem via SuperWoW", 0,1,0)
-                    end
-                    break
+                    matchedElement = totem.element;
+                    matchedSpell   = totem.spell;
+                    break;
                 end
             end
+        end
+    end
+
+    if not matchedElement then
+        if settings.DEBUG_MODE then
+            DEFAULT_CHAT_FRAME:AddMessage("SuperTotem: No pending slot for totem: "..unitName, 1,0.5,0)
+        end
+        return;
+    end
+
+    -- Clear the pending entry now that we have confirmation
+    pendingCastByElement[matchedElement] = nil;
+
+    -- Update totemState for this element
+    for i, totem in ipairs(totemState) do
+        if totem.element == matchedElement then
+            totemState[i].serverVerified = true
+            totemState[i].unitId = unitId
+            if tx and ty then totemPositions[matchedElement] = { x=tx, y=ty } end
+            if ST_TotemBar_StartTimer then
+                local elCap = string.upper(string.sub(matchedElement,1,1))..string.sub(matchedElement,2);
+                ST_TotemBar_StartTimer(elCap, totem.spell);
+            end
+            if ST_TotemBar_RefreshIcons then ST_TotemBar_RefreshIcons() end
+            if settings.DEBUG_MODE then
+                DEFAULT_CHAT_FRAME:AddMessage("SuperTotem: Matched "..matchedElement.." totem via SuperWoW ("..matchedSpell..")", 0,1,0)
+            end
+            break
         end
     end
 end)
@@ -418,6 +602,32 @@ local function CheckAndRefreshShield()
     return false;
 end
 
+-- Weapon imbue state (read by the bar UI for timer display)
+local lastImbueCheckTime = 0;
+local IMBUE_CHECK_INTERVAL = 1.0;
+local IMBUE_REAPPLY_THRESHOLD_MS = 5000; -- reapply when < 5s remaining
+
+local function CheckAndRefreshImbue()
+    if not settings.AUTO_IMBUE_MODE then return end
+    local currentTime = GetTime();
+    if currentTime - lastImbueCheckTime < IMBUE_CHECK_INTERVAL then return end
+    lastImbueCheckTime = currentTime;
+
+    local spell = settings.IMBUE_TYPE;
+    if not spell then return end
+    local idx = weaponImbueNameToIndex[spell];
+    if not idx then return end -- not trained
+
+    local hasMH, mhExpMS = GetWeaponEnchantInfo();
+    if not hasMH or not mhExpMS or mhExpMS <= IMBUE_REAPPLY_THRESHOLD_MS then
+        BPCast(spell);
+        activeImbueSpell = spell;
+        if settings.DEBUG_MODE then
+            DEFAULT_CHAT_FRAME:AddMessage("SuperTotem: Reapplying "..spell);
+        end
+    end
+end
+
 local function ToggleSetting(settingName, displayName)
     settings[settingName] = not settings[settingName];
     SuperTotemDB[settingName] = settings[settingName];
@@ -432,6 +642,7 @@ local function ResetTotemState()
         totemState[i].unitId = nil;
     end
     totemPositions = { air=nil, fire=nil, earth=nil, water=nil }
+    pendingCastByElement = {};
     lastAllTotemsActiveTime = 0;
     PrintMessage("Totem state reset.");
 end
@@ -447,6 +658,7 @@ local function ResetWaterTotemState()
             break;
         end
     end
+    pendingCastByElement["water"] = nil;
     lastAllTotemsActiveTime = 0;
     PrintMessage("Water totem state reset.");
 end
@@ -455,22 +667,22 @@ local function DropTotems()
     local currentTime = GetTime();
     if superwowEnabled and CheckTotemRange() then lastAllTotemsActiveTime = 0 end
     if CheckAndRefreshShield() then return end
+    CheckAndRefreshImbue();
     if currentTime - lastTotemCastTime < TOTEM_CAST_DELAY then return end
 
     local function IsOnCooldown(spellName)
         if not spellName then return false end
-        local i = 1;
-        while true do
-            local n = GetSpellName(i, BOOKTYPE_SPELL);
-            if not n then break end
-            if n == spellName then
-                local start, duration = GetSpellCooldown(i, BOOKTYPE_SPELL);
-                if not start or not duration then return false end
-                return duration > 0 and (start + duration) > currentTime;
-            end
-            i = i + 1;
-        end
-        return false;
+        local idx = spellNameToIndex[spellName];
+        if not idx then return false end
+        local start, duration = GetSpellCooldown(idx, BOOKTYPE_SPELL);
+        if not start or not duration then return false end
+        return duration > 0 and (start + duration) > currentTime;
+    end
+
+    -- Record that we just cast a totem spell so UNIT_MODEL_CHANGED can match it
+    -- to the right element without relying on name substring matching alone.
+    local function RegisterPendingCast(element, spellName)
+        pendingCastByElement[string.lower(element)] = { spell=spellName, castTime=currentTime };
     end
 
     local function GetFallback(element)
@@ -604,6 +816,7 @@ local function DropTotems()
 
         if isCleansingTotem then
             BPCast(totem.spell);
+            RegisterPendingCast(totem.element, totem.spell);
             if ST_TotemBar_StartTimer then
                 local el = string.upper(string.sub(totem.element,1,1))..string.sub(totem.element,2);
                 ST_TotemBar_StartTimer(el, totem.spell);
@@ -621,6 +834,7 @@ local function DropTotems()
                 if fb and not IsOnCooldown(fb) then
                     -- Primary is on cooldown; drop fallback instead
                     BPCast(fb);
+                    RegisterPendingCast(totem.element, fb);
                     if ST_TotemBar_StartTimer then
                         local el = string.upper(string.sub(totem.element,1,1))..string.sub(totem.element,2);
                         ST_TotemBar_StartTimer(el, fb);
@@ -637,6 +851,7 @@ local function DropTotems()
                 end
             else
                 BPCast(totem.spell);
+                RegisterPendingCast(totem.element, totem.spell);
                 if ST_TotemBar_StartTimer then
                     local el = string.upper(string.sub(totem.element,1,1))..string.sub(totem.element,2);
                     ST_TotemBar_StartTimer(el, totem.spell);
@@ -833,6 +1048,7 @@ local function HealPartyMembers()
                     AssistUnit(followTarget);
                     BPCast("Chain Lightning");
                     BPCast("Fire Nova Totem");
+                    pendingCastByElement["fire"] = { spell="Fire Nova Totem", castTime=GetTime() };
                     if ST_TotemBar_StartTimer then ST_TotemBar_StartTimer("Fire","Fire Nova Totem") end
                     lastFireNovaCastTime = GetTime();
                     BPCast("Lightning Bolt");
@@ -1169,7 +1385,7 @@ local function DropFireTotem()
     local currentTime = GetTime();
     if currentTime - lastTotemCastTime < TOTEM_CAST_DELAY then return end
     local fireSpell = settings.FIRE_TOTEM;
-    if not fireSpell or fireSpell=="" then DEFAULT_CHAT_FRAME:AddMessage("SuperTotem: No fire totem configured."); return end
+    if not fireSpell or fireSpell=="" then return end
     if currentTime - lastFireNovaCastTime < FIRE_NOVA_DURATION then return end
 
     if superwowEnabled then
@@ -1204,6 +1420,7 @@ local function DropFireTotem()
     if fireActive then return end
 
     BPCast(fireSpell);
+    pendingCastByElement["fire"] = { spell=fireSpell, castTime=currentTime };
     if ST_TotemBar_StartTimer then ST_TotemBar_StartTimer("Fire",fireSpell) end
     for i,totem in ipairs(totemState) do
         if totem.element=="fire" then
@@ -1277,10 +1494,6 @@ OnExternalTotemCast = function(spellName)
 
     for i, totem in ipairs(totemState) do
         if totem.element == def.element then
-            -- If already server-verified with the same spell, this is likely a spam
-            -- attempt -- ignore it. A genuine cast would destroy the old totem first
-            -- and SuperWoW will reset serverVerified via UnitExists checks.
-            -- But if it's a different spell, allow it through as a genuine replacement.
             if totem.serverVerified and totem.spell == spellName then
                 if settings.DEBUG_MODE then
                     PrintMessage("External totem spam ignored - ");
@@ -1294,13 +1507,13 @@ OnExternalTotemCast = function(spellName)
             totemState[i].serverVerified  = false;
             totemState[i].unitId = nil;
             totemPositions[def.element] = nil;
+            -- Register pending so UNIT_MODEL_CHANGED can match unambiguously
+            pendingCastByElement[def.element] = { spell=spellName, castTime=currentTime };
             break;
         end
     end
     lastTotemCastTime = currentTime;
     lastAllTotemsActiveTime = 0;
-    -- Do NOT start the bar timer or refresh icons here -- wait for SuperWoW
-    -- GUID confirmation in UNIT_MODEL_CHANGED so we only update on a real cast.
     if settings.DEBUG_MODE then
         DEFAULT_CHAT_FRAME:AddMessage("SuperTotem: External totem pending SuperWoW: "..spellName, 1, 1, 0);
     end
@@ -1336,6 +1549,8 @@ local function OnEvent()
         settings.AUTO_SHIELD_MODE    = db.AUTO_SHIELD_MODE    or false;
         settings.SHIELD_TYPE         = db.SHIELD_TYPE         or "Water Shield";
         settings.STRICT_MODE         = db.STRICT_MODE ~= false;
+        settings.AUTO_IMBUE_MODE     = db.AUTO_IMBUE_MODE     or false;
+        settings.IMBUE_TYPE          = db.IMBUE_TYPE          or "Rockbiter Weapon";
         local function loadTotem(val, default)
             if val == "none" then return nil end
             return val or default;
@@ -1363,6 +1578,8 @@ local function OnEvent()
         db.AUTO_SHIELD_MODE    = settings.AUTO_SHIELD_MODE;
         db.SHIELD_TYPE         = settings.SHIELD_TYPE;
         db.STRICT_MODE         = settings.STRICT_MODE;
+        db.AUTO_IMBUE_MODE     = settings.AUTO_IMBUE_MODE;
+        db.IMBUE_TYPE          = settings.IMBUE_TYPE;
         db.EARTH_TOTEM         = settings.EARTH_TOTEM or db.EARTH_TOTEM or "none";
         db.FIRE_TOTEM          = settings.FIRE_TOTEM  or db.FIRE_TOTEM  or "none";
         db.AIR_TOTEM           = settings.AIR_TOTEM   or db.AIR_TOTEM   or "none";
@@ -1384,12 +1601,24 @@ local function OnEvent()
 
         totemState = InitializeTotemState();
 
+        -- Build the spellbook index cache now that spells are available
+        BuildSpellIndex();
+
+        -- Rebuild index whenever the spellbook changes (talent respec, learning new ranks)
+        local spellChangeFrame = CreateFrame("Frame");
+        spellChangeFrame:RegisterEvent("SPELLS_CHANGED");
+        spellChangeFrame:SetScript("OnEvent", function()
+            BuildSpellIndex();
+            if ST_ImbueBar_Refresh then ST_ImbueBar_Refresh() end
+        end);
+
         -- Refresh UI to reflect loaded settings
         if ST_TotemBar_RefreshIcons   then ST_TotemBar_RefreshIcons()   end
         if ST_TotemBar_RefreshToggles then ST_TotemBar_RefreshToggles() end
         if ST_TotemBar_RefreshFireSlider then ST_TotemBar_RefreshFireSlider() end
         if ST_RangeSlider_Refresh     then ST_RangeSlider_Refresh()     end
         if ST_TotemBar_RefreshFallbackBadges then ST_TotemBar_RefreshFallbackBadges() end
+        if ST_ImbueBar_Refresh        then ST_ImbueBar_Refresh()        end
 
         if SUPERWOW_VERSION then
             superwowEnabled=true
@@ -1475,6 +1704,19 @@ do
         ["Disease Cleansing Totem"] = 120,
     };
 
+    -- Periodic totems: interval in seconds between pulses.
+    -- Only totems listed here get a tick bar.
+    local TICK_INTERVALS = {
+        ["Tremor Totem"]            = 4,
+        ["Poison Cleansing Totem"]  = 5,
+        ["Disease Cleansing Totem"] = 5,
+        ["Earthbind Totem"]         = 3,
+        ["Magma Totem"]             = 2,
+        ["Stoneclaw Totem"]         = 1.5,
+        ["Healing Stream Totem"]    = 2,
+        ["Mana Spring Totem"]       = 2,
+    };
+
     local timerState = {};
 
     local ELEMENTS = {
@@ -1505,13 +1747,13 @@ do
     tt:SetOwner(UIParent,"ANCHOR_NONE");
     local function ShowSpellTip(anchor, spellName)
         tt:ClearLines(); tt:SetOwner(anchor,"ANCHOR_RIGHT");
-        local i=1;
-        while true do
-            local n=GetSpellName(i,BOOKTYPE_SPELL); if not n then break end
-            if n==spellName then tt:SetSpell(i,BOOKTYPE_SPELL); tt:Show(); return end
-            i=i+1;
+        local idx = spellNameToIndex[spellName];
+        if idx then
+            tt:SetSpell(idx, BOOKTYPE_SPELL);
+        else
+            tt:AddLine(spellName, 1, 1, 1);
         end
-        tt:AddLine(spellName,1,1,1); tt:Show();
+        tt:Show();
     end
 
     -- All size constants defined together, in dependency order
@@ -1527,7 +1769,7 @@ do
     local TOGGLE_PADDING  = 0;
     local HANDLE_H        = 0;
 
-    local barW = BAR_BTN_SIZE * 4;
+    local barW = BAR_BTN_SIZE * 5;
     local barH = BAR_BTN_SIZE + HANDLE_H;
 
     local bar = CreateFrame("Frame","ST_TotemBar",UIParent);
@@ -1620,20 +1862,14 @@ do
             -- cooldown on the main icon in grey so the player knows when it's ready again.
             local function ShowCooldownOnMain()
                 if not setTotem or not COOLDOWN_TOTEM_CD[setTotem] then return false end
-                local si = 1;
-                while true do
-                    local sn = GetSpellName(si, BOOKTYPE_SPELL); if not sn then break end
-                    if sn == setTotem then
-                        local start, duration = GetSpellCooldown(si, BOOKTYPE_SPELL);
-                        if not start or not duration or duration == 0 then return false end
-                        local rem = (start + duration) - now;
-                        if rem <= 0 then return false end
-                        SetTD(bb.timer, bb.timerLayers, FT(rem), 0.55, 0.55, 0.55);
-                        return true;
-                    end
-                    si = si + 1;
-                end
-                return false;
+                local idx = spellNameToIndex[setTotem];
+                if not idx then return false end
+                local start, duration = GetSpellCooldown(idx, BOOKTYPE_SPELL);
+                if not start or not duration or duration == 0 then return false end
+                local rem = (start + duration) - now;
+                if rem <= 0 then return false end
+                SetTD(bb.timer, bb.timerLayers, FT(rem), 0.55, 0.55, 0.55);
+                return true;
             end
 
             if ts then
@@ -1677,6 +1913,25 @@ do
                     HideTD(bb.timer,bb.timerLayers)
                 end
                 if bb.activeBtn then bb.activeBtn:Hide(); ResizeBar() end
+            end
+
+            -- Tick bar: sweep left→right once per pulse interval while totem is active
+            if bb.tickBarBg and bb.tickBarFill then
+                local tickTotem = ts and ts.totemName;
+                local tickInterval = tickTotem and TICK_INTERVALS[tickTotem];
+                if tickInterval and ts and ts.startTime and ts.duration and ts.duration > 0 then
+                    local elapsed = now - ts.startTime;
+                    if elapsed >= 0 then
+                        local progress = math.mod(elapsed, tickInterval) / tickInterval;
+                        local fillW = progress * BAR_BTN_SIZE;
+                        bb.tickBarFill:SetWidth(fillW > 0 and fillW or 0.01);
+                        bb.tickBarBg:Show();
+                        bb.tickBarFill:Show();
+                    end
+                else
+                    bb.tickBarBg:Hide();
+                    bb.tickBarFill:Hide();
+                end
             end
         end
     end);
@@ -1723,6 +1978,23 @@ do
         timerText:SetTextColor(1,1,1,1); timerText:Hide();
         local timerLayers={};
 
+        -- Tick bar: thin strip at the bottom of the icon sweeping left→right each pulse
+        local TICK_BAR_H = 3;
+        local tickBarBg = mainBtn:CreateTexture(nil,"ARTWORK");
+        tickBarBg:SetTexture(0,0,0,0.65);
+        tickBarBg:SetPoint("BOTTOMLEFT",mainBtn,"BOTTOMLEFT",0,0);
+        tickBarBg:SetPoint("BOTTOMRIGHT",mainBtn,"BOTTOMRIGHT",0,0);
+        tickBarBg:SetHeight(TICK_BAR_H);
+        tickBarBg:Hide();
+
+        local tickBarFill = mainBtn:CreateTexture(nil,"OVERLAY");
+        tickBarFill:SetTexture(1,1,1,1);
+        tickBarFill:SetBlendMode("ADD");
+        tickBarFill:SetPoint("BOTTOMLEFT",mainBtn,"BOTTOMLEFT",0,0);
+        tickBarFill:SetHeight(TICK_BAR_H);
+        tickBarFill:SetWidth(0);
+        tickBarFill:Hide();
+
         local activeBtn=CreateFrame("Button",nil,bar);
         activeBtn:RegisterForDrag("LeftButton");
         activeBtn:SetScript("OnDragStart", function() if IsShiftKeyDown() then bar:StartMoving() end end);
@@ -1743,14 +2015,20 @@ do
         aTimer:SetPoint("CENTER",activeBtn,"CENTER",0,0); aTimer:SetTextColor(1,1,1,1); aTimer:Hide();
         local aTimerLayers={};
         activeBtn:SetScript("OnClick",function()
-            local ts=timerState[elementKey]; if ts and ts.totemName then BPCast(ts.totemName); ST_TotemBar_StartTimer(elementKey,ts.totemName) end
+            local ts=timerState[elementKey];
+            if ts and ts.totemName then
+                BPCast(ts.totemName);
+                pendingCastByElement[string.lower(elementKey)] = { spell=ts.totemName, castTime=GetTime() };
+                ST_TotemBar_StartTimer(elementKey,ts.totemName);
+            end
         end);
         activeBtn:SetScript("OnEnter",function() local ts=timerState[elementKey]; if ts and ts.totemName then ShowSpellTip(activeBtn,ts.totemName) end end);
         activeBtn:SetScript("OnLeave",function() tt:Hide() end);
         activeBtn:Hide();
 
         barButtons[elementKey]={btn=mainBtn,icon=barIcon,timer=timerText,timerLayers=timerLayers,
-            activeBtn=activeBtn,activeIcon=aIcon,activeTimer=aTimer,activeTimerLayers=aTimerLayers};
+            activeBtn=activeBtn,activeIcon=aIcon,activeTimer=aTimer,activeTimerLayers=aTimerLayers,
+            tickBarBg=tickBarBg,tickBarFill=tickBarFill};
 
         -- Small corner badge showing the fallback totem icon
         local BADGE_SIZE = 18;
@@ -1959,7 +2237,10 @@ do
                 end
             else
                 local cur=GetCurrentTotem(dbKey);
-                if cur then BPCast(cur); ST_TotemBar_StartTimer(elementKey,cur)
+                if cur then
+                    BPCast(cur);
+                    pendingCastByElement[string.lower(elementKey)] = { spell=cur, castTime=GetTime() };
+                    ST_TotemBar_StartTimer(elementKey,cur);
                 else DEFAULT_CHAT_FRAME:AddMessage("SuperTotem: No "..elementKey.." totem selected.") end
             end
         end);
@@ -1972,9 +2253,16 @@ do
         PlaySound("igMainMenuOption");
     end;
 
+    -- Get the totem's base duration from our table.
+    -- GetSpellDuration is not used here: on some server builds it returns remaining
+    -- buff duration rather than the spell's base duration, giving wrong values.
+    local function GetTotemDuration(totemName)
+        return TOTEM_DURATIONS[totemName] or 0;
+    end
+
     function ST_TotemBar_StartTimer(elementKey, totemName)
-        local dur=TOTEM_DURATIONS[totemName];
-        timerState[elementKey]={ startTime=GetTime(), duration=(dur and dur>0) and dur or 0, totemName=totemName };
+        local dur = GetTotemDuration(totemName);
+        timerState[elementKey]={ startTime=GetTime(), duration=dur, totemName=totemName };
     end
 
     function ST_TotemBar_StopAllTimers()
@@ -1985,6 +2273,8 @@ do
                 if bb.activeBtn then bb.activeBtn:Hide() end
                 bb.timer:Hide();
                 for li=1,table.getn(bb.timerLayers) do bb.timerLayers[li]:Hide() end
+                if bb.tickBarBg then bb.tickBarBg:Hide() end
+                if bb.tickBarFill then bb.tickBarFill:Hide() end
             end
         end
         ResizeBar();
@@ -2053,6 +2343,8 @@ do
               if ST_TotemBar_UpdateMode then ST_TotemBar_UpdateMode() end
           end },
         { key="AS", label="S", tip="Automatic shield cast",     setting="AUTO_SHIELD_MODE",
+          onToggle=function() end },
+        { key="WI", label="W", tip="Auto weapon imbue",         setting="AUTO_IMBUE_MODE",
           onToggle=function() end },
     };
 
@@ -2151,10 +2443,7 @@ do
     flyoutDismiss:SetFrameStrata("HIGH");
     flyoutDismiss:EnableMouse(true);
     flyoutDismiss:Hide();
-    flyoutDismiss:SetScript("OnMouseDown", function()
-        shieldFlyout:Hide();
-        flyoutDismiss:Hide();
-    end);
+    -- OnMouseDown wired below after imbueFlyout is created
 
     -- Wire AS button to show flyout on enable, hide on disable
     local asBtn = toggleButtons["AS"];
@@ -2170,6 +2459,366 @@ do
             flyoutDismiss:Hide();
         end
     end);
+
+    -- --------------------------------------------------------
+    -- IMBUE FLYOUT (anchored below the WI button)
+    -- --------------------------------------------------------
+    local imbueFlyout = CreateFrame("Frame", nil, bar);
+    imbueFlyout:SetFrameStrata("DIALOG");
+    imbueFlyout:Hide();
+
+    local IMBUE_FLY_BTN = TOGGLE_BTN_SIZE;
+    imbueFlyout:SetWidth(IMBUE_FLY_BTN);
+    imbueFlyout:EnableMouse(true);
+    imbueFlyout:SetScript("OnEnter", function() barHovered = true end);
+    imbueFlyout:SetScript("OnLeave", function() barHovered = false end);
+    local imbueFlyBg = imbueFlyout:CreateTexture(nil,"BACKGROUND");
+    imbueFlyBg:SetAllPoints(imbueFlyout); imbueFlyBg:SetTexture(0.08,0.08,0.08,0.92);
+
+    -- Populated after BuildSpellIndex runs; rebuilt on SPELLS_CHANGED via refresh function
+    local imbueFlyBtns = {};
+
+    local function BuildImbueFlyout()
+        -- Clear existing buttons
+        for i = 1, table.getn(imbueFlyBtns) do imbueFlyBtns[i]:Hide() end
+        imbueFlyBtns = {};
+
+        -- Collect trained imbues in a stable order
+        local ORDER = {
+            "Rockbiter Weapon", "Windfury Weapon",
+            "Flametongue Weapon", "Frostbrand Weapon", "Earthliving Weapon"
+        };
+        local trained = {};
+        for _, name in ipairs(ORDER) do
+            if weaponImbueNameToIndex[name] then
+                trained[table.getn(trained)+1] = name;
+            end
+        end
+
+        imbueFlyout:SetHeight(IMBUE_FLY_BTN * math.max(1, table.getn(trained)));
+        imbueFlyout:SetPoint("TOPLEFT", toggleButtons["WI"], "BOTTOMLEFT", 0, -2);
+
+        for j = 1, table.getn(trained) do
+            local name = trained[j];
+            local icon = WEAPON_IMBUE_DEFS[name] or "Interface\\Icons\\ability_seal";
+            local fb = CreateFrame("Button", nil, imbueFlyout);
+            fb:SetWidth(IMBUE_FLY_BTN); fb:SetHeight(IMBUE_FLY_BTN);
+            fb:SetPoint("TOPLEFT", imbueFlyout, "TOPLEFT", 0, -(j-1)*IMBUE_FLY_BTN);
+            local fbg = fb:CreateTexture(nil,"BACKGROUND"); fbg:SetAllPoints(fb);
+            fbg:SetTexture(0.12,0.12,0.12,0.85);
+            local ficon = fb:CreateTexture(nil,"ARTWORK");
+            ficon:SetWidth(IMBUE_FLY_BTN-2); ficon:SetHeight(IMBUE_FLY_BTN-2);
+            ficon:SetPoint("CENTER",fb,"CENTER",0,0);
+            ficon:SetTexture(icon);
+            local fhi = fb:CreateTexture(nil,"HIGHLIGHT"); fhi:SetTexture(1,1,1,0.15);
+            fhi:SetAllPoints(fb); fb:SetHighlightTexture(fhi);
+            fb:SetScript("OnClick", function()
+                settings.AUTO_IMBUE_MODE = true;
+                settings.IMBUE_TYPE = name;
+                SuperTotemDB.AUTO_IMBUE_MODE = true;
+                SuperTotemDB.IMBUE_TYPE = name;
+                lastImbueCheckTime = 0; -- force immediate reapply check
+                barHovered = true;
+                imbueFlyout:Hide();
+                flyoutDismiss:Show();
+                RefreshToggleColors();
+                -- Cast immediately
+                local idx = weaponImbueNameToIndex[name];
+                if idx then BPCast(name); activeImbueSpell = name; end
+            end);
+            fb:SetScript("OnEnter", function()
+                barHovered = true;
+                tt:ClearLines(); tt:SetOwner(fb,"ANCHOR_RIGHT");
+                local idx = weaponImbueNameToIndex[name];
+                if idx then tt:SetSpell(idx, BOOKTYPE_SPELL);
+                else tt:AddLine(name, 1,1,1) end
+                tt:Show();
+            end);
+            fb:SetScript("OnLeave", function() barHovered = false; tt:Hide() end);
+            imbueFlyBtns[j] = fb;
+        end
+    end
+
+    -- Wire WI button: toggle auto-imbue, show flyout to pick type
+    local wiBtn = toggleButtons["WI"];
+    wiBtn:SetScript("OnClick", function()
+        ToggleSetting("AUTO_IMBUE_MODE", "Auto weapon imbue");
+        RefreshToggleColors();
+        if settings.AUTO_IMBUE_MODE then
+            BuildImbueFlyout();
+            barHovered = true;
+            imbueFlyout:Show();
+            flyoutDismiss:Show();
+            lastImbueCheckTime = 0;
+        else
+            imbueFlyout:Hide();
+            flyoutDismiss:Hide();
+        end
+    end);
+
+    -- Extend flyoutDismiss to also hide the imbue flyout
+    flyoutDismiss:SetScript("OnMouseDown", function()
+        shieldFlyout:Hide();
+        imbueFlyout:Hide();
+        if imbueIconFlyout then imbueIconFlyout:Hide() end
+        flyoutDismiss:Hide();
+    end);
+
+    -- --------------------------------------------------------
+    -- IMBUE ICON BUTTON (sits right of the 4 totem columns, always visible)
+    -- --------------------------------------------------------
+    local imbueBtn = CreateFrame("Button", nil, bar);
+    imbueBtn:RegisterForDrag("LeftButton");
+    imbueBtn:SetScript("OnDragStart", function() if IsShiftKeyDown() then bar:StartMoving() end end);
+    imbueBtn:SetScript("OnDragStop", function() bar:StopMovingOrSizing() end);
+    imbueBtn:SetWidth(BAR_BTN_SIZE); imbueBtn:SetHeight(BAR_BTN_SIZE);
+    imbueBtn:SetPoint("TOPLEFT", bar, "TOPLEFT", 4 * BAR_BTN_SIZE, 0);
+
+    local imbueBtnSlot = imbueBtn:CreateTexture(nil,"BACKGROUND");
+    imbueBtnSlot:SetTexture("Interface\\Buttons\\UI-EmptySlot"); imbueBtnSlot:SetAllPoints(imbueBtn);
+    local imbueBtnIcon = imbueBtn:CreateTexture(nil,"ARTWORK");
+    imbueBtnIcon:SetWidth(BAR_BTN_SIZE); imbueBtnIcon:SetHeight(BAR_BTN_SIZE);
+    imbueBtnIcon:SetPoint("CENTER",imbueBtn,"CENTER",0,0);
+    imbueBtnIcon:SetTexture("Interface\\Icons\\ability_seal");
+    local imbueBtnHi = imbueBtn:CreateTexture(nil,"HIGHLIGHT");
+    imbueBtnHi:SetTexture("Interface\\Buttons\\ButtonHilight-Square"); imbueBtnHi:SetAllPoints(imbueBtn);
+    imbueBtnHi:SetBlendMode("ADD"); imbueBtn:SetHighlightTexture(imbueBtnHi);
+
+    local imbueTimer = imbueBtn:CreateFontString(nil,"OVERLAY");
+    imbueTimer:SetFont("Fonts\\FRIZQT__.TTF",14,"THICKOUTLINE");
+    imbueTimer:SetPoint("CENTER",imbueBtn,"CENTER",0,0);
+    imbueTimer:SetTextColor(1,1,1,1); imbueTimer:Hide();
+
+    local function ShowImbueGlow() DoiteGlow.Start(imbueBtn) end
+    local function HideImbueGlow() DoiteGlow.Stop(imbueBtn) end
+
+    -- Flyout for manual imbue selection directly from the icon button
+    -- Opens upward (same direction as totem flyouts), does NOT touch AUTO_IMBUE_MODE
+    local imbueIconFlyout = CreateFrame("Frame", nil, bar);
+    imbueIconFlyout:SetFrameStrata("DIALOG");
+    imbueIconFlyout:Hide();
+
+    local ICON_FLY_BTN = 36; -- matches totem flyout button size
+    imbueIconFlyout:SetWidth(ICON_FLY_BTN);
+    imbueIconFlyout:EnableMouse(true);
+    imbueIconFlyout:SetScript("OnEnter", function() barHovered = true end);
+    imbueIconFlyout:SetScript("OnLeave", function() barHovered = false end);
+    local iconFlyBg = imbueIconFlyout:CreateTexture(nil,"BACKGROUND");
+    iconFlyBg:SetAllPoints(imbueIconFlyout); iconFlyBg:SetTexture(0.08,0.08,0.08,0.92);
+
+    local iconFlyBtns = {};
+    local function BuildImbueIconFlyout()
+        for i = 1, table.getn(iconFlyBtns) do iconFlyBtns[i]:Hide() end
+        iconFlyBtns = {};
+
+        local ORDER = {
+            "Rockbiter Weapon", "Windfury Weapon",
+            "Flametongue Weapon", "Frostbrand Weapon", "Earthliving Weapon"
+        };
+        local trained = {};
+        for _, name in ipairs(ORDER) do
+            if weaponImbueNameToIndex[name] then
+                trained[table.getn(trained)+1] = name;
+            end
+        end
+
+        local n = math.max(1, table.getn(trained));
+        imbueIconFlyout:SetHeight(ICON_FLY_BTN * n);
+        imbueIconFlyout:ClearAllPoints();
+        imbueIconFlyout:SetPoint("BOTTOM", imbueBtn, "TOP", 0, 4);
+
+        for j = 1, table.getn(trained) do
+            local name = trained[j];
+            local icon = WEAPON_IMBUE_DEFS[name] or "Interface\\Icons\\ability_seal";
+            local fb = CreateFrame("CheckButton", nil, imbueIconFlyout);
+            fb:SetWidth(ICON_FLY_BTN); fb:SetHeight(ICON_FLY_BTN);
+            fb:SetPoint("TOP", imbueIconFlyout, "TOP", 0, -(j-1)*ICON_FLY_BTN);
+            local fbg = fb:CreateTexture(nil,"BACKGROUND"); fbg:SetAllPoints(fb);
+            fbg:SetTexture(0.12,0.12,0.12,0.85);
+            local ficon = fb:CreateTexture(nil,"ARTWORK");
+            ficon:SetWidth(ICON_FLY_BTN-4); ficon:SetHeight(ICON_FLY_BTN-4);
+            ficon:SetPoint("CENTER",fb,"CENTER",0,0);
+            ficon:SetTexture(icon);
+            local fhi = fb:CreateTexture(nil,"HIGHLIGHT"); fhi:SetTexture(1,1,1,0.15);
+            fhi:SetAllPoints(fb); fb:SetHighlightTexture(fhi);
+            local fck = fb:CreateTexture(nil,"OVERLAY");
+            fck:SetTexture("Interface\\Buttons\\CheckButtonHilight"); fck:SetAllPoints(fb);
+            fck:SetBlendMode("ADD"); fb:SetCheckedTexture(fck);
+
+            fb.imbueName = name;
+            fb:SetScript("OnClick", function()
+                settings.IMBUE_TYPE = name;
+                SuperTotemDB.IMBUE_TYPE = name;
+                local idx = weaponImbueNameToIndex[name];
+                if idx then BPCast(name); activeImbueSpell = name; end
+                imbueIconFlyout:Hide();
+                barHovered = true;
+            end);
+            fb:SetScript("OnEnter", function()
+                barHovered = true;
+                tt:ClearLines(); tt:SetOwner(fb,"ANCHOR_RIGHT");
+                local idx = weaponImbueNameToIndex[name];
+                if idx then tt:SetSpell(idx, BOOKTYPE_SPELL);
+                else tt:AddLine(name,1,1,1) end
+                tt:Show();
+            end);
+            fb:SetScript("OnLeave", function() barHovered = false; tt:Hide() end);
+            iconFlyBtns[j] = fb;
+        end
+    end
+
+    -- Close helper with delay (mirrors totem ScheduleClose pattern)
+    local imbueFlyCloseScheduled = false;
+    local function ScheduleImbueIconClose()
+        imbueFlyCloseScheduled = true;
+        local elapsed = 0;
+        local cf = CreateFrame("Frame");
+        cf:SetScript("OnUpdate", function()
+            elapsed = elapsed + arg1;
+            if elapsed < 0.12 then return end
+            cf:SetScript("OnUpdate", nil);
+            if imbueFlyCloseScheduled then imbueIconFlyout:Hide() end
+        end);
+    end
+    local function CancelImbueIconClose() imbueFlyCloseScheduled = false; end
+
+    -- Rebuild flyout buttons and check current selection on show
+    local function OpenImbueIconFlyout()
+        BuildImbueIconFlyout();
+        -- Mark currently configured imbue as checked
+        local serverName = GetMainHandEnchantName and GetMainHandEnchantName();
+        local active = serverName and serverImbueNameToCanonical[serverName];
+        for j = 1, table.getn(iconFlyBtns) do
+            local fb = iconFlyBtns[j];
+            fb:SetChecked(fb.imbueName == (active or settings.IMBUE_TYPE) and 1 or nil);
+        end
+        imbueIconFlyout:ClearAllPoints();
+        imbueIconFlyout:SetPoint("BOTTOM", imbueBtn, "TOP", 0, 4);
+        imbueIconFlyout:Show();
+    end
+
+    -- Flyout button OnEnter/OnLeave need CancelImbueIconClose — patch them in BuildImbueIconFlyout
+    -- by storing the name on the button and wiring close logic after build.
+    -- We do this by wrapping BuildImbueIconFlyout to add close logic post-build:
+    local _origBuildImbueIconFlyout = BuildImbueIconFlyout;
+    BuildImbueIconFlyout = function()
+        _origBuildImbueIconFlyout();
+        for j = 1, table.getn(iconFlyBtns) do
+            local fb = iconFlyBtns[j];
+            local origEnter = fb:GetScript("OnEnter");
+            fb:SetScript("OnEnter", function()
+                CancelImbueIconClose();
+                if origEnter then origEnter() end
+            end);
+            fb:SetScript("OnLeave", function()
+                barHovered = false; tt:Hide();
+                ScheduleImbueIconClose();
+            end);
+        end
+    end;
+
+    imbueBtn:SetScript("OnClick", function()
+        -- Left-click: cast the currently configured imbue
+        local spell = settings.IMBUE_TYPE;
+        local idx = spell and weaponImbueNameToIndex[spell];
+        if idx then BPCast(spell); activeImbueSpell = spell; end
+    end);
+    imbueBtn:SetScript("OnEnter", function()
+        barHovered = true;
+        CancelImbueIconClose();
+        OpenImbueIconFlyout();
+        tt:ClearLines(); tt:SetOwner(imbueBtn,"ANCHOR_RIGHT");
+        local serverName = GetMainHandEnchantName and GetMainHandEnchantName();
+        local canonical = serverName and serverImbueNameToCanonical[serverName];
+        local displaySpell = canonical or settings.IMBUE_TYPE;
+        local idx = displaySpell and weaponImbueNameToIndex[displaySpell];
+        if idx then tt:SetSpell(idx, BOOKTYPE_SPELL);
+        else tt:AddLine(displaySpell or "No imbue selected",1,1,1) end
+        tt:AddLine("Click to cast configured imbue",0.8,0.8,0.8);
+        tt:Show();
+    end);
+    imbueBtn:SetScript("OnLeave", function()
+        barHovered = false; tt:Hide();
+        ScheduleImbueIconClose();
+    end);
+
+    -- Bar always includes the 5th column for the imbue button
+    bar:SetWidth(BAR_BTN_SIZE * 5);
+
+    -- --------------------------------------------------------
+    -- IMBUE ONUPDATE: poll GetWeaponEnchantInfo every second
+    -- --------------------------------------------------------
+    local imbueUpdateFrame = CreateFrame("Frame");
+    local imbueLastPoll = 0;
+
+    local function GetMainHandEnchantName()
+        local name = GetWeaponEnchantInfo("player");
+        if name and name ~= "" then return name end
+        return nil;
+    end
+
+    imbueUpdateFrame:SetScript("OnUpdate", function()
+        local now = GetTime();
+        if now - imbueLastPoll < 0.5 then return end
+        imbueLastPoll = now;
+
+        local hasMH, mhExpMS = GetWeaponEnchantInfo();
+        local serverName = GetMainHandEnchantName();
+        local canonical = serverName and serverImbueNameToCanonical[serverName];
+        local icon = canonical and WEAPON_IMBUE_DEFS[canonical];
+
+        local function FT(r)
+            if r < 10 then return string.format("%.1f",r)
+            elseif r < 60 then return string.format("%d",r)
+            else return string.format("%dm",math.floor(r/60)) end
+        end
+        local function TC(rem)
+            if rem > 60 then return 1,1,1
+            elseif rem > 15 then return 1,0.8,0
+            else return 1,0.2,0.2 end
+        end
+
+        if hasMH and mhExpMS and mhExpMS > 0 then
+            -- Show actual enchant icon; fall back to configured type if server name
+            -- isn't in our map (unknown/non-shaman enchant)
+            if icon then
+                imbueBtnIcon:SetTexture(icon);
+            else
+                local cfgIcon = settings.IMBUE_TYPE and WEAPON_IMBUE_DEFS[settings.IMBUE_TYPE];
+                imbueBtnIcon:SetTexture(cfgIcon or "Interface\\Icons\\ability_seal");
+            end
+            local remSec = mhExpMS / 1000;
+            local r,g,b = TC(remSec);
+            imbueTimer:SetText(FT(remSec));
+            imbueTimer:SetTextColor(r,g,b,1);
+            imbueTimer:Show();
+            HideImbueGlow();
+        else
+            -- No enchant on weapon
+            local cfgIcon = settings.IMBUE_TYPE and WEAPON_IMBUE_DEFS[settings.IMBUE_TYPE];
+            imbueBtnIcon:SetTexture(cfgIcon or "Interface\\Icons\\ability_seal");
+            imbueTimer:Hide();
+            if settings.AUTO_IMBUE_MODE then ShowImbueGlow() else HideImbueGlow() end
+        end
+    end);
+
+    -- Widen bar and sync icon on load
+    local function RefreshImbueBtn()
+        bar:SetWidth(BAR_BTN_SIZE * 5);
+        BuildImbueFlyout();
+        BuildImbueIconFlyout();
+        local icon = settings.IMBUE_TYPE and WEAPON_IMBUE_DEFS[settings.IMBUE_TYPE];
+        imbueBtnIcon:SetTexture(icon or "Interface\\Icons\\ability_seal");
+        imbueBtn:Show();
+    end
+
+    -- Initial state
+    BuildImbueFlyout();
+    RefreshImbueBtn();
+    function ST_ImbueBar_Refresh()
+        BuildImbueFlyout();
+        RefreshImbueBtn();
+    end
 
     -- --------------------------------------------------------
     -- GLOBAL RANGE SLIDER

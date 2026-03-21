@@ -2,7 +2,8 @@
 ## Title: SuperTotem
 ## Notes: Totem and shield manager for Shaman. Requires SuperWoW for full functionality.
 ## Author: 
-## Version: 1.0.4.3
+## Version: 1.0.4.4
 ## SavedVariables: SuperTotemDB
 
+libs\DoiteGlow.lua
 SuperTotem.lua
